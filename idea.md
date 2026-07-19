@@ -1,48 +1,104 @@
 # Concise conclusion
 
-WASAPI lets your user-mode app read/write audio to endpoints, but it can’t magically intercept other apps’ audio unless you control where they output.
+The application will use a render-only virtual audio driver based on the FxSound driver. The driver exposes a selectable Windows playback endpoint such as “MyApp Speakers”, behaves like a functioning PCM speaker device, advances a simulated playback position, and ultimately discards the rendered audio.
 
-To process system-wide audio like FxSound, you need either:
+Applications send audio to this virtual endpoint through the normal Windows Audio Engine. The user-mode audio engine opens the same render endpoint using WASAPI loopback capture, receiving a copy of the endpoint mix before the virtual sink discards it. It then processes the PCM stream through a VST3 chain and renders the processed result to a user-selected physical output device.
 
-an APO (deep integration but hostile to arbitrary VST hosting/UI in-process), or
+Applications
+    → Windows Audio Engine
+    → MyApp virtual speaker endpoint
+        ├→ WASAPI loopback → user-mode VST engine → real speakers
+        └→ virtual driver sink → discarded
 
-a virtual audio driver that creates a new playback endpoint users set as default.
+The driver should remain minimal and contain no DSP, VST hosting, UI or custom kernel-to-user audio transport. Complex audio processing, routing, buffering, device management and recovery remain in user mode.
 
-With a virtual driver, your user-mode app becomes the bridge:
+Changes to the driver package—such as its INF, hardware ID, service name, filenames or product-specific GUIDs—require shipping a separately signed driver package. Microsoft signs the submitted driver package, not the user-mode application.
 
-apps → virtual endpoint → your user-mode engine (VST host) → selected real hardware endpoint.
+## Phase 1 — Define and build the virtual playback endpoint
 
-The driver should stay thin (just a virtual device + streaming), while all complex logic (VST hosting, UI, routing, buffering, crash recovery) stays in user mode.
+### Architecture
 
-If you change anything in the driver package (INF/device IDs/names), you must get your own signed package (Microsoft signs the driver package, not your app EXE). They don’t need your source; you submit the driver package (typically as a CAB) and receive a Microsoft-signed package back.
+The virtual driver exposes one render endpoint:
 
-Short plan to build your app (FxSound VAD fork + Microsoft signing)
+MyApp Speakers
 
-## Phase 0 — Define the architecture
+It accepts standard uncompressed PCM audio from the Windows Audio Engine. Initially, preserve the FxSound-supported format configuration:
 
-Virtual driver exposes a system playback device: “MyApp Speakers”.
+PCM using WAVEFORMATEXTENSIBLE
+44.1 and 48 kHz
+24-bit integer samples
+2–8 channels
+one render stream
+no capture endpoint
 
-Your user-mode service/app:
+The driver uses the existing PortCls/WaveCyclic implementation to provide:
 
-captures the stream coming out of the virtual device (commonly via a paired capture endpoint / cable-style design),
+Wave and Topology filter descriptions;
+a render streaming pin;
+endpoint and speaker topology;
+cyclic buffer allocation;
+stream state handling;
+simulated playback position;
+periodic timer/DPC notifications;
+PnP and power-management behavior.
 
-runs a VST chain,
+These are Windows audio-driver structures, not DSP filters. For the initial fork, preserve them unchanged.
 
-renders to a user-selected real output endpoint (USB interface / speakers / etc.).
+The user-mode engine will later:
 
-Optional: separate UI app that talks to the engine service (recommended).
+find the virtual render endpoint;
+open it with WASAPI shared-mode loopback capture;
+convert the captured samples to floating point;
+process them through the VST3 chain;
+render the processed audio to the selected physical endpoint.
 
-## Phase 1 — Fork and minimally modify the FxSound virtual driver
+No paired virtual recording endpoint or custom kernel communication channel is required.
 
-Goal: keep kernel risk low by changing only “identity/packaging”, not streaming logic.
+### Fork the FxSound driver
 
-Fork FxSound’s driver repo.
+Fork:
 
-Change INF / hardware IDs / device names / GUIDs so it’s your device and doesn’t conflict with FxSound.
+fxsound2/fxsound-driver
 
-Ensure the driver still exposes the endpoints you need (render, and if applicable the paired capture path used for pickup).
+Use the Microsoft Virtual Audio Device Driver sample as supporting documentation for the inherited PortCls/WaveCyclic classes and topology.
 
-Build in WDK/VS; verify you can install it in test mode first.
+For the first working fork, change only product and package identity:
+
+INF provider and manufacturer names;
+device description and endpoint-friendly name;
+root-enumerated hardware and compatible IDs;
+driver service name;
+SYS, INF and CAT filenames where appropriate;
+Wave and Topology subdevice display strings;
+product-specific device/interface GUIDs;
+version information, resources and copyright strings;
+installer and development-installation scripts.
+
+Do not change:
+
+Windows-defined class, interface, category or node GUIDs;
+CLSID_PortWaveCyclic or CLSID_PortTopology;
+standard PCM and Kernel Streaming format GUIDs;
+pin and node indices;
+Wave/Topology physical connections;
+stream, timer, DMA-position or PnP logic.
+
+### Initial validation
+
+Build the driver using Visual Studio and the Windows Driver Kit, then install it with Windows test signing enabled.
+
+Validate that:
+
+the virtual playback endpoint appears in Windows;
+applications can select it as their output;
+playback remains active without driver errors or stalled buffers;
+no sound reaches the physical speakers;
+Audacity can select:
+Windows WASAPI
+MyApp Speakers (loopback)
+audio routed to the virtual endpoint can be recorded through loopback.
+
+A successful Audacity recording proves that the virtual endpoint and its WASAPI loopback path are working before the custom user-mode engine is implemented.
 
 ## Phase 2 — Build the user-mode audio engine (core of the product)
 
