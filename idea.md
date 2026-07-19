@@ -1,4 +1,4 @@
-Concise conclusion
+# Concise conclusion
 
 WASAPI lets your user-mode app read/write audio to endpoints, but it can’t magically intercept other apps’ audio unless you control where they output.
 
@@ -17,7 +17,8 @@ The driver should stay thin (just a virtual device + streaming), while all compl
 If you change anything in the driver package (INF/device IDs/names), you must get your own signed package (Microsoft signs the driver package, not your app EXE). They don’t need your source; you submit the driver package (typically as a CAB) and receive a Microsoft-signed package back.
 
 Short plan to build your app (FxSound VAD fork + Microsoft signing)
-Phase 0 — Define the architecture
+
+## Phase 0 — Define the architecture
 
 Virtual driver exposes a system playback device: “MyApp Speakers”.
 
@@ -31,7 +32,7 @@ renders to a user-selected real output endpoint (USB interface / speakers / etc.
 
 Optional: separate UI app that talks to the engine service (recommended).
 
-Phase 1 — Fork and minimally modify the FxSound virtual driver
+## Phase 1 — Fork and minimally modify the FxSound virtual driver
 
 Goal: keep kernel risk low by changing only “identity/packaging”, not streaming logic.
 
@@ -43,7 +44,7 @@ Ensure the driver still exposes the endpoints you need (render, and if applicabl
 
 Build in WDK/VS; verify you can install it in test mode first.
 
-Phase 2 — Build the user-mode audio engine (core of the product)
+## Phase 2 — Build the user-mode audio engine (core of the product)
 
 Implement a WASAPI bridge:
 
@@ -63,7 +64,7 @@ Start with JUCE AudioPluginFormatManager loading VST3.
 
 Strongly consider a plugin sandbox process (plugins crash a lot; keep audio engine alive).
 
-Phase 3 — Build UI
+## Phase 3 — Build UI
 
 Device selection (choose real output device).
 
@@ -71,7 +72,7 @@ Plugin chain management (scan, add/remove, reorder, bypass).
 
 Presets/state saving.
 
-Phase 4 — Hardening and testing
+## Phase 4 — Hardening and testing
 
 Long-run playback (hours), sleep/wake, device hotplug, sample-rate changes.
 
@@ -79,7 +80,7 @@ Buffer underrun/overrun monitoring, auto-recovery.
 
 VM testing for driver changes.
 
-Phase 5 — Microsoft signing
+## Phase 5 — Microsoft signing
 
 Produce a proper driver package from your build (INF/SYS/CAT…).
 
