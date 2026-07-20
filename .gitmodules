@@ -1,0 +1,3 @@
+[submodule "ext/driver"]
+	path = ext/driver
+	url = git@github.com:kozacsaba/fxsound-driver.git
