@@ -12,6 +12,7 @@
 #include <cstring>
 #include <iostream>
 #include <memory>
+#include <optional>
 
 using Microsoft::WRL::ComPtr;
 
@@ -67,6 +68,286 @@ HRESULT getDevice(IMMDeviceEnumerator* enumerator,
   return enumerator->GetDevice(
     endpoint.id.c_str(),
     device.GetAddressOf());
+}
+
+struct CoTaskMemDeleter
+{
+  void operator()(void* ptr) const
+  {
+    CoTaskMemFree(ptr);
+  }
+};
+
+using WaveFormatPtr = std::unique_ptr<WAVEFORMATEX, CoTaskMemDeleter>;
+
+struct CaptureSide
+{
+  ComPtr<IAudioClient> audio_client;
+  ComPtr<IAudioCaptureClient> capture_client;
+  WaveFormatPtr format;
+};
+
+struct RenderSide
+{
+  ComPtr<IAudioClient> audio_client;
+  ComPtr<IAudioRenderClient> render_client;
+  UINT32 buffer_frames = 0;
+};
+
+std::optional<CaptureSide> createCaptureSide(IMMDevice* device)
+{
+  CaptureSide capture;
+
+  HRESULT hr = device->Activate(
+    __uuidof(IAudioClient),
+    CLSCTX_ALL,
+    nullptr,
+    reinterpret_cast<void**>(capture.audio_client.GetAddressOf()));
+
+  if (FAILED(hr))
+  {
+    printHresult("AudioSink Activate", hr);
+    return std::nullopt;
+  }
+
+  WAVEFORMATEX* raw_format = nullptr;
+  hr = capture.audio_client->GetMixFormat(&raw_format);
+
+  if (FAILED(hr))
+  {
+    printHresult("AudioSink GetMixFormat", hr);
+    return std::nullopt;
+  }
+
+  capture.format.reset(raw_format);
+
+  // SMOKE TEST:
+  // Large buffer for simplicity.
+  //
+  // TODO:
+  // Replace with low-latency, event-driven buffering.
+  constexpr REFERENCE_TIME buffer_duration = 100 * 10'000;
+
+  hr = capture.audio_client->Initialize(
+    AUDCLNT_SHAREMODE_SHARED,
+    AUDCLNT_STREAMFLAGS_LOOPBACK,
+    buffer_duration,
+    0,
+    capture.format.get(),
+    nullptr);
+
+  if (FAILED(hr))
+  {
+    printHresult("Loopback Initialize", hr);
+    return std::nullopt;
+  }
+
+  hr = capture.audio_client->GetService(
+    __uuidof(IAudioCaptureClient),
+    reinterpret_cast<void**>(capture.capture_client.GetAddressOf()));
+
+  if (FAILED(hr))
+  {
+    printHresult("Get IAudioCaptureClient", hr);
+    return std::nullopt;
+  }
+
+  return capture;
+}
+
+std::optional<RenderSide> createRenderSide(IMMDevice* device, const WAVEFORMATEX* format)
+{
+  RenderSide render;
+
+  HRESULT hr = device->Activate(
+    __uuidof(IAudioClient),
+    CLSCTX_ALL,
+    nullptr,
+    reinterpret_cast<void**>(render.audio_client.GetAddressOf()));
+
+  if (FAILED(hr))
+  {
+    printHresult("Output Activate", hr);
+    return std::nullopt;
+  }
+
+  // SMOKE TEST:
+  // Let Windows convert the loopback format to the output mix format.
+  //
+  // TODO:
+  // Introduce an explicit internal processing format and conversion.
+  constexpr DWORD flags =
+    AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM |
+    AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY;
+
+  constexpr REFERENCE_TIME buffer_duration = 100 * 10'000;
+
+  hr = render.audio_client->Initialize(
+    AUDCLNT_SHAREMODE_SHARED,
+    flags,
+    buffer_duration,
+    0,
+    format,
+    nullptr);
+
+  if (FAILED(hr))
+  {
+    printHresult("Output Initialize", hr);
+    return std::nullopt;
+  }
+
+  hr = render.audio_client->GetBufferSize(&render.buffer_frames);
+
+  if (FAILED(hr))
+  {
+    printHresult("Output GetBufferSize", hr);
+    return std::nullopt;
+  }
+
+  hr = render.audio_client->GetService(
+    __uuidof(IAudioRenderClient),
+    reinterpret_cast<void**>(render.render_client.GetAddressOf()));
+
+  if (FAILED(hr))
+  {
+    printHresult("Get IAudioRenderClient", hr);
+    return std::nullopt;
+  }
+
+  return render;
+}
+
+void printFormat(const WAVEFORMATEX& format)
+{
+  std::wcout
+    << L"Input format:\n"
+    << L"  Sample rate: " << format.nSamplesPerSec << L" Hz\n"
+    << L"  Channels: " << format.nChannels << L'\n'
+    << L"  Bits/sample: " << format.wBitsPerSample << L"\n\n";
+}
+
+bool forwardPacket(CaptureSide& capture, RenderSide& render, uint64_t& dropped_packets)
+{
+  BYTE* capture_data = nullptr;
+  UINT32 frames = 0;
+  DWORD capture_flags = 0;
+
+  HRESULT hr = capture.capture_client->GetBuffer(
+    &capture_data,
+    &frames,
+    &capture_flags,
+    nullptr,
+    nullptr);
+
+  if (FAILED(hr))
+  {
+    printHresult("Capture GetBuffer", hr);
+    return false;
+  }
+
+  UINT32 padding = 0;
+  hr = render.audio_client->GetCurrentPadding(&padding);
+
+  if (FAILED(hr))
+  {
+    printHresult("Output GetCurrentPadding", hr);
+    capture.capture_client->ReleaseBuffer(frames);
+    return false;
+  }
+
+  const UINT32 available_frames = render.buffer_frames - padding;
+
+  if (frames > available_frames)
+  {
+    // SMOKE TEST:
+    // Drop the complete packet if the output cannot currently accept it.
+    //
+    // TODO:
+    // Replace this with a ring buffer.
+    ++dropped_packets;
+    capture.capture_client->ReleaseBuffer(frames);
+    return true;
+  }
+
+  BYTE* render_data = nullptr;
+  hr = render.render_client->GetBuffer(frames, &render_data);
+
+  if (FAILED(hr))
+  {
+    printHresult("Output GetBuffer", hr);
+    capture.capture_client->ReleaseBuffer(frames);
+    return false;
+  }
+
+  DWORD output_flags = 0;
+
+  if (capture_flags & AUDCLNT_BUFFERFLAGS_SILENT)
+    output_flags = AUDCLNT_BUFFERFLAGS_SILENT;
+  else
+    std::memcpy(render_data, capture_data, 
+      static_cast<size_t>(frames) * capture.format->nBlockAlign);
+
+  hr = render.render_client->ReleaseBuffer(frames, output_flags);
+
+  if (FAILED(hr))
+  {
+    printHresult("Output ReleaseBuffer", hr);
+    capture.capture_client->ReleaseBuffer(frames);
+    return false;
+  }
+
+  hr = capture.capture_client->ReleaseBuffer(frames);
+
+  if (FAILED(hr))
+  {
+    printHresult("Capture ReleaseBuffer", hr);
+    return false;
+  }
+
+  return true;
+}
+
+bool runBridgeLoop(CaptureSide& capture, RenderSide& render, 
+                   const std::atomic_bool& running, uint64_t& dropped_packets)
+{
+  while (running.load(std::memory_order_relaxed))
+  {
+    UINT32 packet_frames = 0;
+    HRESULT hr = capture.capture_client->GetNextPacketSize(&packet_frames);
+
+    if (FAILED(hr))
+    {
+      printHresult("GetNextPacketSize", hr);
+      return false;
+    }
+
+    if (packet_frames == 0)
+    {
+      // SMOKE TEST:
+      // Polling is sufficient for now.
+      //
+      // TODO:
+      // Replace with event-driven WASAPI notification.
+      Sleep(1);
+      continue;
+    }
+
+    while (packet_frames > 0)
+    {
+      if (!forwardPacket(capture, render, dropped_packets))
+        return false;
+
+      hr = capture.capture_client->GetNextPacketSize(&packet_frames);
+
+      if (FAILED(hr))
+      {
+        printHresult("GetNextPacketSize", hr);
+        return false;
+      }
+    }
+  }
+
+  return true;
 }
 
 } // namespace
@@ -221,139 +502,15 @@ int runAudioBridge(const Endpoint& audio_sink, const Endpoint& output, const std
     return 1;
   }
 
-  ComPtr<IAudioClient> capture_audio_client;
+  auto capture = createCaptureSide(input_device.Get());
+  if (!capture) return 1;
 
-  hr = input_device->Activate(
-    __uuidof(IAudioClient),
-    CLSCTX_ALL,
-    nullptr,
-    reinterpret_cast<void**>(capture_audio_client.GetAddressOf()));
+  printFormat(*capture->format);
 
-  if (FAILED(hr))
-  {
-    printHresult("AudioSink Activate", hr);
-    return 1;
-  }
+  auto render = createRenderSide(output_device.Get(), capture->format.get());
+  if (!render) return 1;
 
-  WAVEFORMATEX* raw_format = nullptr;
-  hr = capture_audio_client->GetMixFormat(&raw_format);
-
-  if (FAILED(hr))
-  {
-    printHresult("AudioSink GetMixFormat", hr);
-    return 1;
-  }
-
-  std::unique_ptr<WAVEFORMATEX, decltype(&CoTaskMemFree)>
-    format(raw_format, &CoTaskMemFree);
-
-  std::wcout
-    << L"Input format:\n"
-    << L"    Sample rate: "
-    << format->nSamplesPerSec
-    << L" Hz\n"
-    << L"    Channels: "
-    << format->nChannels
-    << L"\n"
-    << L"    Bits/sample: "
-    << format->wBitsPerSample
-    << L"\n\n";
-
-  // SMOKE TEST:
-  // Large buffer for simplicity.
-  //
-  // TODO:
-  // Replace with proper low-latency,
-  // event-driven buffering.
-  constexpr REFERENCE_TIME buffer_duration = 100 * 10'000;
-
-  hr = capture_audio_client->Initialize(
-    AUDCLNT_SHAREMODE_SHARED,
-    AUDCLNT_STREAMFLAGS_LOOPBACK,
-    buffer_duration,
-    0,
-    format.get(),
-    nullptr);
-
-  if (FAILED(hr))
-  {
-    printHresult("Loopback Initialize", hr);
-    return 1;
-  }
-
-  ComPtr<IAudioCaptureClient> capture_client;
-
-  hr = capture_audio_client->GetService(
-    __uuidof(IAudioCaptureClient),
-    reinterpret_cast<void**>(capture_client.GetAddressOf()));
-
-  if (FAILED(hr))
-  {
-    printHresult("Get IAudioCaptureClient", hr);
-    return 1;
-  }
-
-  ComPtr<IAudioClient> render_audio_client;
-
-  hr = output_device->Activate(
-    __uuidof(IAudioClient),
-    CLSCTX_ALL,
-    nullptr,
-    reinterpret_cast<void**>(render_audio_client.GetAddressOf()));
-
-  if (FAILED(hr))
-  {
-    printHresult("Output Activate", hr);
-    return 1;
-  }
-
-  // SMOKE TEST:
-  // Feed the loopback format directly to the
-  // render client and let Windows convert it.
-  //
-  // TODO:
-  // Introduce our own internal processing
-  // format and explicit conversion.
-  constexpr DWORD render_flags =
-    AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM |
-    AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY;
-
-  hr = render_audio_client->Initialize(
-    AUDCLNT_SHAREMODE_SHARED,
-    render_flags,
-    buffer_duration,
-    0,
-    format.get(),
-    nullptr);
-
-  if (FAILED(hr))
-  {
-    printHresult("Output Initialize", hr);
-    return 1;
-  }
-
-  UINT32 render_buffer_frames = 0;
-  hr = render_audio_client->GetBufferSize(&render_buffer_frames);
-
-  if (FAILED(hr))
-  {
-    printHresult("Output GetBufferSize", hr);
-    return 1;
-  }
-
-  ComPtr<IAudioRenderClient> render_client;
-
-  hr = render_audio_client->GetService(
-    __uuidof(IAudioRenderClient),
-    reinterpret_cast<void**>(render_client.GetAddressOf()));
-
-  if (FAILED(hr))
-  {
-    printHresult("Get IAudioRenderClient", hr);
-    return 1;
-  }
-
-  hr = render_audio_client->Start();
+  hr = render->audio_client->Start();
 
   if (FAILED(hr))
   {
@@ -361,148 +518,27 @@ int runAudioBridge(const Endpoint& audio_sink, const Endpoint& output, const std
     return 1;
   }
 
-  hr = capture_audio_client->Start();
+  hr = capture->audio_client->Start();
 
   if (FAILED(hr))
   {
     printHresult("Loopback Start", hr);
-    render_audio_client->Stop();
+    render->audio_client->Stop();
     return 1;
   }
 
   uint64_t dropped_packets = 0;
-  bool failed = false;
 
-  while (running.load(std::memory_order_relaxed))
-  {
-    UINT32 packet_frames = 0;
-    hr = capture_client->GetNextPacketSize(&packet_frames);
+  const bool success = runBridgeLoop(*capture, *render, running, dropped_packets);
 
-    if (FAILED(hr))
-    {
-      printHresult("GetNextPacketSize", hr);
-      failed = true;
-      break;
-    }
-
-    if (packet_frames == 0)
-    {
-      // SMOKE TEST:
-      // Polling is good enough for now.
-      //
-      // TODO:
-      // Replace with WASAPI events.
-      Sleep(1);
-      continue;
-    }
-
-    while (packet_frames > 0)
-    {
-      BYTE* capture_data = nullptr;
-      UINT32 frames = 0;
-      DWORD capture_flags = 0;
-
-      hr = capture_client->GetBuffer(
-        &capture_data,
-        &frames,
-        &capture_flags,
-        nullptr,
-        nullptr);
-
-      if (FAILED(hr))
-      {
-        printHresult("Capture GetBuffer", hr);
-        failed = true;
-        break;
-      }
-
-      UINT32 padding = 0;
-      hr = render_audio_client->GetCurrentPadding(&padding);
-
-      if (FAILED(hr))
-      {
-        printHresult("Output GetCurrentPadding", hr);
-        capture_client->ReleaseBuffer(frames);
-        failed = true;
-        break;
-      }
-
-      const UINT32 available_frames = render_buffer_frames - padding;
-
-      if (frames <= available_frames)
-      {
-        BYTE* render_data = nullptr;
-        hr = render_client->GetBuffer(frames, &render_data);
-
-        if (FAILED(hr))
-        {
-          printHresult("Output GetBuffer", hr);
-          capture_client->ReleaseBuffer(frames);
-          failed = true;
-          break;
-        }
-
-        DWORD output_flags = 0;
-
-        if (capture_flags & AUDCLNT_BUFFERFLAGS_SILENT)
-          output_flags = AUDCLNT_BUFFERFLAGS_SILENT;
-        else
-          std::memcpy(render_data, capture_data,
-            static_cast<size_t>(frames) * format->nBlockAlign);
-
-        hr = render_client->ReleaseBuffer(frames, output_flags);
-
-        if (FAILED(hr))
-        {
-          printHresult("Output ReleaseBuffer", hr);
-          capture_client->ReleaseBuffer(frames);
-          failed = true;
-          break;
-        }
-      }
-      else
-      {
-        // SMOKE TEST:
-        // Drop packets when output cannot
-        // currently accept them.
-        //
-        // TODO:
-        // Replace with a proper ring buffer.
-        ++dropped_packets;
-      }
-
-      hr = capture_client->ReleaseBuffer(frames);
-
-      if (FAILED(hr))
-      {
-        printHresult("Capture ReleaseBuffer", hr);
-        failed = true;
-        break;
-      }
-
-      hr = capture_client->GetNextPacketSize(&packet_frames);
-
-      if (FAILED(hr))
-      {
-        printHresult("GetNextPacketSize", hr);
-        failed = true;
-        break;
-      }
-    }
-
-    if (failed) break;
-  }
-
-  capture_audio_client->Stop();
-  render_audio_client->Stop();
+  capture->audio_client->Stop();
+  render->audio_client->Stop();
 
   std::wcout
     << L"\nStopped.\n"
-    << L"Dropped packets: "
-    << dropped_packets
-    << L'\n';
+    << L"Dropped packets: " << dropped_packets << L'\n';
 
-  return failed ? 1 : 0;
+  return success ? 0 : 1;
 }
 
 } // namespace mitmegy
