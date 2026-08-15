@@ -1,44 +1,42 @@
-#include <mitmegy/Audio.hpp>
+#include "mitmegy/Audio.hpp"
+#include "mitmegy/Com.hpp"
 
 #include <windows.h>
 
 #include <iostream>
 #include <vector>
+#include <stdexcept>
+#include <format>
 
 int wmain()
 {
-  HRESULT hr = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
-
-  if (FAILED(hr))
+  try
   {
-    std::cerr << "Failed to initialize COM.\n";
+    mitmegy::ComScope com;
+
+    if (!com.ok()) throw std::runtime_error(
+        "CoInitializeEx failed: 0x" + 
+        std::format("{:x}", (unsigned long)com.result()));
+
+    std::vector<mitmegy::Endpoint> endpoints;
+    mitmegy::enumerateRenderEndpoints(endpoints);
+
+    const auto* audio_sink = mitmegy::findAudioSink(endpoints);
+
+    if (audio_sink == nullptr)
+      throw std::runtime_error("AudioSink is not available.");
+
+    std::wcout
+      << L"AudioSink available:\n"
+      << L"    "
+      << audio_sink->name
+      << L'\n';
+
+    return 0;
+  }
+  catch(const std::exception& e)
+  {
+    std::cout << e.what();
     return 1;
   }
-
-  std::vector<mitmegy::Endpoint> endpoints;
-
-  if (!mitmegy::enumerateRenderEndpoints(endpoints))
-  {
-    CoUninitialize();
-    return 1;
-  }
-
-  const auto* audio_sink = mitmegy::findAudioSink(endpoints);
-
-  if (audio_sink == nullptr)
-  {
-    std::wcerr << L"AudioSink is not available.\n";
-    CoUninitialize();
-    return 1;
-  }
-
-  std::wcout
-    << L"AudioSink available:\n"
-    << L"    "
-    << audio_sink->name
-    << L'\n';
-
-  CoUninitialize();
-
-  return 0;
 }

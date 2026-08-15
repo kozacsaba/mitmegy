@@ -1,10 +1,13 @@
-#include <mitmegy/Audio.hpp>
+#include "mitmegy/Audio.hpp"
+#include "mitmegy/Com.hpp"
 
 #include <windows.h>
 
 #include <atomic>
 #include <iostream>
 #include <vector>
+#include <stdexcept>
+#include <format>
 
 namespace
 {
@@ -48,81 +51,60 @@ void printOutputEndpoints(const std::vector<mitmegy::Endpoint>& endpoints)
 
 int wmain(int argc, wchar_t* argv[])
 {
-  HRESULT hr = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
-
-  if (FAILED(hr))
+  try
   {
-    std::cerr
-      << "CoInitializeEx failed: 0x"
-      << std::hex
-      << static_cast<unsigned long>(hr)
-      << '\n';
+    mitmegy::ComScope com;
 
-    return 1;
-  }
+    if (!com.ok()) throw std::runtime_error(
+        "CoInitializeEx failed: 0x" + 
+        std::format("{:x}", (unsigned long)com.result()));
 
-  SetConsoleCtrlHandler(consoleHandler, TRUE);
+    SetConsoleCtrlHandler(consoleHandler, TRUE);
 
-  std::vector<mitmegy::Endpoint> endpoints;
+    std::vector<mitmegy::Endpoint> endpoints;
+    mitmegy::enumerateRenderEndpoints(endpoints);
 
-  if (!mitmegy::enumerateRenderEndpoints(endpoints))
-  {
-    CoUninitialize();
-    return 1;
-  }
+    const auto* audio_sink = mitmegy::findAudioSink(endpoints);
 
-  const auto* audio_sink = mitmegy::findAudioSink(endpoints);
+    if (audio_sink == nullptr)
+      throw std::runtime_error("ERROR: AudioSink endpoint is not available.");
 
-  if (audio_sink == nullptr)
-  {
-    std::wcerr << L"ERROR: AudioSink endpoint " << L"is not available.\n";
-    CoUninitialize();
-    return 1;
-  }
+    if (argc < 2)
+    {
+      printOutputEndpoints(endpoints);
+      return 0;
+    }
 
-  if (argc < 2)
-  {
-    printOutputEndpoints(endpoints);
-    CoUninitialize();
+    const auto* output = mitmegy::findOutputEndpoint(endpoints, argv[1]);
+
+    if (output == nullptr)
+    {
+      std::wcerr
+        << L"ERROR: No output endpoint "
+        << L"matches \""
+        << argv[1]
+        << L"\".\n\n";
+
+      printOutputEndpoints(endpoints);
+      return 1;
+    }
+
+    std::wcout
+      << L"Selected output endpoint:\n"
+      << L"    " << output->name << L'\n'
+      << L"    ID: " << output->id << L"\n\n"
+      << L"Forwarding:\n"
+      << L"    " << audio_sink->name << L"\n"
+      << L"        -> " << output->name << L"\n\n"
+      << L"Press Ctrl+C to stop.\n";
+
+    mitmegy::runAudioBridge(*audio_sink, *output, g_running);
+
     return 0;
   }
-
-  const auto* output = mitmegy::findOutputEndpoint(endpoints, argv[1]);
-
-  if (output == nullptr)
+  catch(const std::exception& e)
   {
-    std::wcerr
-      << L"ERROR: No output endpoint "
-      << L"matches \""
-      << argv[1]
-      << L"\".\n\n";
-
-    printOutputEndpoints(endpoints);
-    CoUninitialize();
+    std::cout << e.what();
     return 1;
   }
-
-  std::wcout
-    << L"Selected output endpoint:\n"
-    << L"    "
-    << output->name
-    << L'\n'
-    << L"    ID: "
-    << output->id
-    << L"\n\n"
-    << L"Forwarding:\n"
-    << L"    "
-    << audio_sink->name
-    << L"\n"
-    << L"        -> "
-    << output->name
-    << L"\n\n"
-    << L"Press Ctrl+C to stop.\n";
-
-  const int result = mitmegy::runAudioBridge(
-      *audio_sink, *output, g_running);
-
-  CoUninitialize();
-
-  return result;
 }

@@ -1,5 +1,6 @@
 add_library(libmitmegy STATIC
   Audio.cpp
+  Com.cpp
 )
 
 target_compile_features(libmitmegy

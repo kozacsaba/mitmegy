@@ -15,8 +15,7 @@ struct Endpoint
 };
 
 // COM must be initialized on the calling thread.
-bool enumerateRenderEndpoints(
-  std::vector<Endpoint>& endpoints);
+void enumerateRenderEndpoints(std::vector<Endpoint>& endpoints);
 
 bool isAudioSink(const Endpoint& endpoint);
 
@@ -27,7 +26,7 @@ const Endpoint* findOutputEndpoint(
   const std::vector<Endpoint>& endpoints,
   std::wstring_view filter);
 
-int runAudioBridge(
+void runAudioBridge(
   const Endpoint& audio_sink,
   const Endpoint& output,
   const std::atomic_bool& running);

@@ -13,6 +13,7 @@
 #include <iostream>
 #include <memory>
 #include <optional>
+#include <sstream>
 
 using Microsoft::WRL::ComPtr;
 
@@ -25,15 +26,13 @@ namespace
 constexpr std::wstring_view kAudioSinkName =
   MITMEGY_WIDEN(MITMEGY_AUDIO_SINK_NAME);
 
-void printHresult(const char* operation, HRESULT hr)
+std::string formatHresult(const char* operation, HRESULT hr)
 {
-  std::cerr
-    << operation
-    << " failed: 0x"
-    << std::hex
-    << static_cast<unsigned long>(hr)
-    << std::dec
-    << '\n';
+  std::stringstream ss;
+  ss << operation << " failed: 0x"
+     << std::hex << static_cast<unsigned long>(hr);
+
+  return ss.str(); 
 }
 
 bool containsInsensitive(std::wstring_view text, std::wstring_view substring)
@@ -80,6 +79,8 @@ struct CoTaskMemDeleter
 
 using WaveFormatPtr = std::unique_ptr<WAVEFORMATEX, CoTaskMemDeleter>;
 
+using CoTaskMemWString = std::unique_ptr<wchar_t, CoTaskMemDeleter>;
+
 struct CaptureSide
 {
   ComPtr<IAudioClient> audio_client;
@@ -94,7 +95,7 @@ struct RenderSide
   UINT32 buffer_frames = 0;
 };
 
-std::optional<CaptureSide> createCaptureSide(IMMDevice* device)
+CaptureSide createCaptureSide(IMMDevice* device)
 {
   CaptureSide capture;
 
@@ -104,20 +105,11 @@ std::optional<CaptureSide> createCaptureSide(IMMDevice* device)
     nullptr,
     reinterpret_cast<void**>(capture.audio_client.GetAddressOf()));
 
-  if (FAILED(hr))
-  {
-    printHresult("AudioSink Activate", hr);
-    return std::nullopt;
-  }
+  if (FAILED(hr)) throw std::runtime_error(formatHresult("AudioSink Activate", hr));
 
   WAVEFORMATEX* raw_format = nullptr;
   hr = capture.audio_client->GetMixFormat(&raw_format);
-
-  if (FAILED(hr))
-  {
-    printHresult("AudioSink GetMixFormat", hr);
-    return std::nullopt;
-  }
+  if (FAILED(hr)) throw std::runtime_error(formatHresult("AudioSink GetMixFormat", hr));
 
   capture.format.reset(raw_format);
 
@@ -136,26 +128,18 @@ std::optional<CaptureSide> createCaptureSide(IMMDevice* device)
     capture.format.get(),
     nullptr);
 
-  if (FAILED(hr))
-  {
-    printHresult("Loopback Initialize", hr);
-    return std::nullopt;
-  }
+  if (FAILED(hr)) throw std::runtime_error(formatHresult("Loopback Initialize", hr));
 
   hr = capture.audio_client->GetService(
     __uuidof(IAudioCaptureClient),
     reinterpret_cast<void**>(capture.capture_client.GetAddressOf()));
 
-  if (FAILED(hr))
-  {
-    printHresult("Get IAudioCaptureClient", hr);
-    return std::nullopt;
-  }
+  if (FAILED(hr)) throw std::runtime_error(formatHresult("Get IAudioCaptureClient", hr));
 
   return capture;
 }
 
-std::optional<RenderSide> createRenderSide(IMMDevice* device, const WAVEFORMATEX* format)
+RenderSide createRenderSide(IMMDevice* device, const WAVEFORMATEX* format)
 {
   RenderSide render;
 
@@ -164,12 +148,7 @@ std::optional<RenderSide> createRenderSide(IMMDevice* device, const WAVEFORMATEX
     CLSCTX_ALL,
     nullptr,
     reinterpret_cast<void**>(render.audio_client.GetAddressOf()));
-
-  if (FAILED(hr))
-  {
-    printHresult("Output Activate", hr);
-    return std::nullopt;
-  }
+  if (FAILED(hr)) throw std::runtime_error(formatHresult("Output Activate", hr));
 
   // SMOKE TEST:
   // Let Windows convert the loopback format to the output mix format.
@@ -189,30 +168,15 @@ std::optional<RenderSide> createRenderSide(IMMDevice* device, const WAVEFORMATEX
     0,
     format,
     nullptr);
-
-  if (FAILED(hr))
-  {
-    printHresult("Output Initialize", hr);
-    return std::nullopt;
-  }
+  if (FAILED(hr)) throw std::runtime_error(formatHresult("Output Initialize", hr));
 
   hr = render.audio_client->GetBufferSize(&render.buffer_frames);
-
-  if (FAILED(hr))
-  {
-    printHresult("Output GetBufferSize", hr);
-    return std::nullopt;
-  }
+  if (FAILED(hr)) throw std::runtime_error(formatHresult("Output GetBufferSize", hr));
 
   hr = render.audio_client->GetService(
     __uuidof(IAudioRenderClient),
     reinterpret_cast<void**>(render.render_client.GetAddressOf()));
-
-  if (FAILED(hr))
-  {
-    printHresult("Get IAudioRenderClient", hr);
-    return std::nullopt;
-  }
+  if (FAILED(hr)) throw std::runtime_error(formatHresult("Get IAudioRenderClient", hr));
 
   return render;
 }
@@ -226,7 +190,7 @@ void printFormat(const WAVEFORMATEX& format)
     << L"  Bits/sample: " << format.wBitsPerSample << L"\n\n";
 }
 
-bool forwardPacket(CaptureSide& capture, RenderSide& render, uint64_t& dropped_packets)
+void forwardPacket(CaptureSide& capture, RenderSide& render, uint64_t& dropped_packets)
 {
   BYTE* capture_data = nullptr;
   UINT32 frames = 0;
@@ -238,21 +202,14 @@ bool forwardPacket(CaptureSide& capture, RenderSide& render, uint64_t& dropped_p
     &capture_flags,
     nullptr,
     nullptr);
-
-  if (FAILED(hr))
-  {
-    printHresult("Capture GetBuffer", hr);
-    return false;
-  }
+  if (FAILED(hr)) throw std::runtime_error(formatHresult("Capture GetBuffer", hr));
 
   UINT32 padding = 0;
   hr = render.audio_client->GetCurrentPadding(&padding);
-
   if (FAILED(hr))
   {
-    printHresult("Output GetCurrentPadding", hr);
     capture.capture_client->ReleaseBuffer(frames);
-    return false;
+    throw std::runtime_error(formatHresult("Output GetCurrentPadding", hr));
   }
 
   const UINT32 available_frames = render.buffer_frames - padding;
@@ -266,7 +223,7 @@ bool forwardPacket(CaptureSide& capture, RenderSide& render, uint64_t& dropped_p
     // Replace this with a ring buffer.
     ++dropped_packets;
     capture.capture_client->ReleaseBuffer(frames);
-    return true;
+    return;
   }
 
   BYTE* render_data = nullptr;
@@ -274,9 +231,8 @@ bool forwardPacket(CaptureSide& capture, RenderSide& render, uint64_t& dropped_p
 
   if (FAILED(hr))
   {
-    printHresult("Output GetBuffer", hr);
     capture.capture_client->ReleaseBuffer(frames);
-    return false;
+    throw std::runtime_error(formatHresult("Output GetBuffer", hr));
   }
 
   DWORD output_flags = 0;
@@ -291,35 +247,24 @@ bool forwardPacket(CaptureSide& capture, RenderSide& render, uint64_t& dropped_p
 
   if (FAILED(hr))
   {
-    printHresult("Output ReleaseBuffer", hr);
     capture.capture_client->ReleaseBuffer(frames);
-    return false;
+    throw std::runtime_error(formatHresult("Output ReleaseBuffer", hr));
   }
 
   hr = capture.capture_client->ReleaseBuffer(frames);
+  if (FAILED(hr)) throw std::runtime_error(formatHresult("Capture ReleaseBuffer", hr));
 
-  if (FAILED(hr))
-  {
-    printHresult("Capture ReleaseBuffer", hr);
-    return false;
-  }
-
-  return true;
+  return;
 }
 
-bool runBridgeLoop(CaptureSide& capture, RenderSide& render, 
+void runBridgeLoop(CaptureSide& capture, RenderSide& render, 
                    const std::atomic_bool& running, uint64_t& dropped_packets)
 {
   while (running.load(std::memory_order_relaxed))
   {
     UINT32 packet_frames = 0;
     HRESULT hr = capture.capture_client->GetNextPacketSize(&packet_frames);
-
-    if (FAILED(hr))
-    {
-      printHresult("GetNextPacketSize", hr);
-      return false;
-    }
+    if (FAILED(hr)) throw std::runtime_error(formatHresult("GetNextPacketSize", hr));
 
     if (packet_frames == 0)
     {
@@ -334,37 +279,58 @@ bool runBridgeLoop(CaptureSide& capture, RenderSide& render,
 
     while (packet_frames > 0)
     {
-      if (!forwardPacket(capture, render, dropped_packets))
-        return false;
-
+      forwardPacket(capture, render, dropped_packets);
       hr = capture.capture_client->GetNextPacketSize(&packet_frames);
-
-      if (FAILED(hr))
-      {
-        printHresult("GetNextPacketSize", hr);
-        return false;
-      }
+      if (FAILED(hr)) throw std::runtime_error(formatHresult("GetNextPacketSize", hr));
     }
   }
-
-  return true;
 }
+
+class PropVariant
+{
+public:
+  PropVariant()
+  {
+    PropVariantInit(&value_);
+  }
+
+  ~PropVariant()
+  {
+    PropVariantClear(&value_);
+  }
+
+  PropVariant(const PropVariant&) = delete;
+  PropVariant& operator=(const PropVariant&) = delete;
+
+  PROPVARIANT* get()
+  {
+    return &value_;
+  }
+
+  const PROPVARIANT& operator*() const
+  {
+    return value_;
+  }
+
+  const PROPVARIANT* operator->() const
+  {
+    return &value_;
+  }
+
+private:
+  PROPVARIANT value_;
+};
 
 } // namespace
 
 namespace mitmegy
 {
 
-bool enumerateRenderEndpoints(std::vector<Endpoint>& endpoints)
+void enumerateRenderEndpoints(std::vector<Endpoint>& endpoints)
 {
   ComPtr<IMMDeviceEnumerator> enumerator;
   HRESULT hr = createEnumerator(enumerator);
-
-  if (FAILED(hr))
-  {
-    printHresult("CoCreateInstance", hr);
-    return false;
-  }
+  if (FAILED(hr)) throw std::runtime_error(formatHresult("CoCreateInstance", hr));
 
   ComPtr<IMMDeviceCollection> collection;
 
@@ -372,22 +338,11 @@ bool enumerateRenderEndpoints(std::vector<Endpoint>& endpoints)
     eRender,
     DEVICE_STATE_ACTIVE,
     collection.GetAddressOf());
-
-  if (FAILED(hr))
-  {
-    printHresult("EnumAudioEndpoints", hr);
-    return false;
-  }
+  if (FAILED(hr)) throw std::runtime_error(formatHresult("EnumAudioEndpoints", hr));
 
   UINT count = 0;
-
   hr = collection->GetCount(&count);
-
-  if (FAILED(hr))
-  {
-    printHresult("GetCount", hr);
-    return false;
-  }
+  if (FAILED(hr)) throw std::runtime_error(formatHresult("GetCount", hr));
 
   endpoints.clear();
   endpoints.reserve(count);
@@ -395,42 +350,24 @@ bool enumerateRenderEndpoints(std::vector<Endpoint>& endpoints)
   for (UINT i = 0; i < count; ++i)
   {
     ComPtr<IMMDevice> device;
-
-    if (FAILED(collection->Item(i, device.GetAddressOf())))
-      continue;
+    if (FAILED(collection->Item(i, device.GetAddressOf()))) continue;
 
     ComPtr<IPropertyStore> properties;
+    if (FAILED(device->OpenPropertyStore(STGM_READ, properties.GetAddressOf()))) continue;
 
-    if (FAILED(device->OpenPropertyStore(STGM_READ, properties.GetAddressOf())))
-      continue;
+    PropVariant name;
+    hr = properties->GetValue(PKEY_Device_FriendlyName, name.get());
+    if (FAILED(hr) || name->vt != VT_LPWSTR) continue;
 
-    PROPVARIANT name;
-    PropVariantInit(&name);
+    LPWSTR raw_id = nullptr;
+    hr = device->GetId(&raw_id);
+    if (FAILED(hr)) continue;
 
-    hr = properties->GetValue(PKEY_Device_FriendlyName, &name);
-
-    if (FAILED(hr) || name.vt != VT_LPWSTR)
-    {
-      PropVariantClear(&name);
-      continue;
-    }
-
-    LPWSTR id = nullptr;
-    hr = device->GetId(&id);
-
-    if (FAILED(hr))
-    {
-      PropVariantClear(&name);
-      continue;
-    }
-
-    endpoints.push_back({name.pwszVal, id});
-
-    CoTaskMemFree(id);
-    PropVariantClear(&name);
+    CoTaskMemWString id(raw_id);
+    endpoints.push_back({name->pwszVal, id.get()});
   }
 
-  return true;
+  return;
 }
 
 bool isAudioSink(const Endpoint& endpoint)
@@ -473,72 +410,53 @@ const Endpoint* findOutputEndpoint(const std::vector<Endpoint>& endpoints, std::
   return &*it;
 }
 
-int runAudioBridge(const Endpoint& audio_sink, const Endpoint& output, const std::atomic_bool& running)
+void runAudioBridge(const Endpoint& audio_sink, const Endpoint& output, const std::atomic_bool& running)
 {
   ComPtr<IMMDeviceEnumerator> enumerator;
   HRESULT hr = createEnumerator(enumerator);
-
-  if (FAILED(hr))
-  {
-    printHresult("CoCreateInstance", hr);
-    return 1;
-  }
+  if (FAILED(hr)) throw std::runtime_error(formatHresult("CoCreateInstance", hr));
 
   ComPtr<IMMDevice> input_device;
   hr = getDevice(enumerator.Get(), audio_sink, input_device);
-
-  if (FAILED(hr))
-  {
-    printHresult("Get AudioSink device", hr);
-    return 1;
-  }
+  if (FAILED(hr)) throw std::runtime_error(formatHresult("Get AudioSink device", hr));
 
   ComPtr<IMMDevice> output_device;
   hr = getDevice(enumerator.Get(), output, output_device);
-
-  if (FAILED(hr))
-  {
-    printHresult("Get output device", hr);
-    return 1;
-  }
+  if (FAILED(hr)) throw std::runtime_error(formatHresult("Get output device", hr));
 
   auto capture = createCaptureSide(input_device.Get());
-  if (!capture) return 1;
+  printFormat(*capture.format);
 
-  printFormat(*capture->format);
+  auto render = createRenderSide(output_device.Get(), capture.format.get());
+  hr = render.audio_client->Start();
+  if (FAILED(hr)) throw std::runtime_error(formatHresult("Output Start", hr));
 
-  auto render = createRenderSide(output_device.Get(), capture->format.get());
-  if (!render) return 1;
-
-  hr = render->audio_client->Start();
-
+  hr = capture.audio_client->Start();
   if (FAILED(hr))
   {
-    printHresult("Output Start", hr);
-    return 1;
-  }
-
-  hr = capture->audio_client->Start();
-
-  if (FAILED(hr))
-  {
-    printHresult("Loopback Start", hr);
-    render->audio_client->Stop();
-    return 1;
+    render.audio_client->Stop();
+    throw std::runtime_error(formatHresult("Loopback Start", hr));
   }
 
   uint64_t dropped_packets = 0;
 
-  const bool success = runBridgeLoop(*capture, *render, running, dropped_packets);
+  try
+  {
+    runBridgeLoop(capture, render, running, dropped_packets);
+  }
+  catch(...)
+  {
+    capture.audio_client->Stop();
+    render.audio_client->Stop();
+    throw;
+  }
 
-  capture->audio_client->Stop();
-  render->audio_client->Stop();
+  capture.audio_client->Stop();
+  render.audio_client->Stop();
 
   std::wcout
     << L"\nStopped.\n"
     << L"Dropped packets: " << dropped_packets << L'\n';
-
-  return success ? 0 : 1;
 }
 
 } // namespace mitmegy
