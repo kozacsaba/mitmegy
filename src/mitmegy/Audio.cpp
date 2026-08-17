@@ -343,64 +343,68 @@ void enqueueCapturePacket(CaptureSide& capture, mitmegy::AudioFifo& fifo, uint64
     throw std::runtime_error(formatHresult("Capture ReleaseBuffer", hr));
 }
 
+void processAudio(mitmegy::AudioFifo::ReadView& view, size_t frames)
+{
+  // passthrough for now
+}
+
 bool renderFromFifo(RenderSide& render, mitmegy::AudioFifo& fifo)
 {
   UINT32 padding = 0;
-
   HRESULT hr = render.audio_client->GetCurrentPadding(&padding);
 
   if (FAILED(hr))
     throw std::runtime_error(formatHresult("Output GetCurrentPadding", hr));
 
-  const UINT32 available_frames = render.buffer_frames - padding;
+  const size_t available_frames = render.buffer_frames - padding;
 
-  const UINT32 frames = static_cast<UINT32>(
-    std::min<size_t>(
-      available_frames,
-      fifo.readableFrames()));
-
-  if (frames == 0)
+  if (available_frames == 0)
     return false;
+
+  auto view = fifo.acquireRead();
+
+  if (!view)
+    return false;
+
+  const size_t frames = std::min(view.frames(), available_frames);
+
+  processAudio(view, frames);
 
   BYTE* render_data = nullptr;
 
-  hr = render.render_client->GetBuffer(frames, &render_data);
+  hr = render.render_client->GetBuffer(
+    static_cast<UINT32>(frames),
+    &render_data);
 
   if (FAILED(hr))
     throw std::runtime_error(formatHresult("Output GetBuffer", hr));
 
-  auto* samples = reinterpret_cast<float*>(render_data);
+  auto* output =
+    reinterpret_cast<float*>(render_data);
 
-  const size_t read = fifo.readInterleaved(
-    std::span<float>(
-      samples,
-      static_cast<size_t>(frames) * fifo.channels()),
-    frames);
-
-  // Should not normally happen because this is the only FIFO consumer,
-  // but never send uninitialized audio to WASAPI.
-  if (read < frames)
+  for (size_t frame = 0; frame < frames; ++frame)
   {
-    std::fill(
-      samples + read * fifo.channels(),
-      samples + static_cast<size_t>(frames) * fifo.channels(),
-      0.0f);
+    for (size_t channel = 0; channel < fifo.channels(); ++channel)
+    {
+      output[frame * fifo.channels() + channel] =
+        view.channel(channel)[frame];
+    }
   }
 
-  hr = render.render_client->ReleaseBuffer(frames, 0);
+  hr = render.render_client->ReleaseBuffer(
+    static_cast<UINT32>(frames),
+    0);
 
   if (FAILED(hr))
     throw std::runtime_error(formatHresult("Output ReleaseBuffer", hr));
 
+  view.consume(frames);
+
   return true;
 }
 
-void runBridgeLoop(
-  CaptureSide& capture,
-  RenderSide& render,
-  mitmegy::AudioFifo& fifo,
-  const std::atomic_bool& running,
-  uint64_t& dropped_frames)
+void runBridgeLoop (CaptureSide& capture, RenderSide& render, mitmegy::AudioFifo& fifo,
+                    const std::atomic_bool& running, uint64_t& dropped_frames)
 {
   while (running.load(std::memory_order_relaxed))
   {

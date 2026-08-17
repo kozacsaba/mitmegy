@@ -97,6 +97,7 @@ public:
   size_t frames() const;
   size_t channels() const;
   std::span<const float> channel(size_t channel) const;
+  std::span<float> channel(size_t channel);
   void consume(size_t frames);
 
 private:

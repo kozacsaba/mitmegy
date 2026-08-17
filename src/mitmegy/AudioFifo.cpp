@@ -337,6 +337,17 @@ std::span<const float> AudioFifo::ReadView::channel(size_t channel) const
   return {fifo_->channelPointer(channel, offset_), frames_};
 }
 
+std::span<float> AudioFifo::ReadView::channel(size_t channel)
+{
+  assert(fifo_ != nullptr);
+  assert(channel < fifo_->channels());
+
+  if (!fifo_)
+    return {};
+
+  return {fifo_->channelPointer(channel, offset_), frames_};
+}
+
 void AudioFifo::ReadView::consume(size_t frames)
 {
   assert(fifo_ != nullptr);
