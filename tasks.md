@@ -3,23 +3,6 @@
 Size: **S / M / L / XL**  
 Priority: **P0 / P1 / P2 / P3**
 
-1. **Define internal processing format — M / P0**
-   - Define the engine's float sample representation, channel layout, sample rate and processing block semantics.
-   - Use JUCE-compatible representations where practical, primarily `juce::AudioBuffer<float>`.
-
-2. **Add FIFO / ring buffer — M / P0**
-   - Add a preallocated producer/consumer FIFO between WASAPI capture and render.
-   - Store frames independently of WASAPI packet boundaries.
-   - Support fill-level queries, overflow detection and underflow detection.
-
-3. **Add input/output sample conversion — S / P0**
-   - Convert captured PCM into the internal float format.
-   - Convert processed float audio into the format required by the render path.
-
-4. **Introduce processing callback / processing stage — S–M / P0**
-   - Add a transport-independent processing interface between input conversion and output.
-   - Allow processing to operate on internal float blocks.
-
 5. **Implement passthrough processing — S / P0**
    - Run audio through the new processing path unchanged.
    - Verify that the FIFO, conversion and block architecture works correctly.
@@ -96,4 +79,7 @@ Priority: **P0 / P1 / P2 / P3**
 23. **Add plugin sandbox process — XL / P3**
     - Move third-party plugins into a separate process.
     - Implement real-time audio IPC, shared-memory transport, crash detection and plugin-host restart/recovery.
-    
+
+24. **Mix Format Compatibility**
+    - Do not assume AudioSink's shared-mode mix format is always stereo 48 kHz IEEE float32
+    - Validate the format at startup and later support other AudioSink PCM/mix formats through input conversion.

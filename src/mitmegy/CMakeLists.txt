@@ -1,5 +1,6 @@
 add_library(libmitmegy STATIC
   Audio.cpp
+  AudioFifo.cpp
   Com.cpp
 )
 
@@ -16,6 +17,7 @@ target_include_directories(libmitmegy
 target_compile_definitions(libmitmegy
   PRIVATE
     MITMEGY_AUDIO_SINK_NAME="${MITMEGY_AUDIO_SINK_NAME}"
+    NOMINMAX
 )
 
 target_link_libraries(libmitmegy

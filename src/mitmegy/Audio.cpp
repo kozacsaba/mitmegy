@@ -1,4 +1,5 @@
 #include "Audio.hpp"
+#include "AudioFifo.hpp"
 
 #include <windows.h>
 #include <audioclient.h>
@@ -6,6 +7,7 @@
 #include <functiondiscoverykeys_devpkey.h>
 #include <mmdeviceapi.h>
 #include <wrl/client.h>
+#include <ksmedia.h>
 
 #include <algorithm>
 #include <cwctype>
@@ -139,6 +141,72 @@ CaptureSide createCaptureSide(IMMDevice* device)
   return capture;
 }
 
+enum class SampleFormat
+{
+  IntegerPcm,
+  Float32
+};
+
+const WAVEFORMATEXTENSIBLE& getExtensibleFormat(const WAVEFORMATEX& format)
+{
+  if (format.wFormatTag != WAVE_FORMAT_EXTENSIBLE)
+    throw std::runtime_error("Audio format is not WAVE_FORMAT_EXTENSIBLE");
+
+  constexpr WORD required_extra_size =
+    sizeof(WAVEFORMATEXTENSIBLE) - sizeof(WAVEFORMATEX);
+
+  if (format.cbSize < required_extra_size)
+    throw std::runtime_error("Invalid WAVEFORMATEXTENSIBLE size");
+
+  return *reinterpret_cast<const WAVEFORMATEXTENSIBLE*>(&format);
+}
+
+SampleFormat getSampleFormat(const WAVEFORMATEX& format)
+{
+  if (format.wFormatTag == WAVE_FORMAT_PCM)
+    return SampleFormat::IntegerPcm;
+
+  if (format.wFormatTag == WAVE_FORMAT_IEEE_FLOAT)
+  {
+    if (format.wBitsPerSample != 32)
+      throw std::runtime_error("Unsupported IEEE float sample size");
+
+    return SampleFormat::Float32;
+  }
+
+  if (format.wFormatTag != WAVE_FORMAT_EXTENSIBLE)
+    throw std::runtime_error("Unsupported audio format");
+
+  const auto& extensible = getExtensibleFormat(format);
+
+  if (IsEqualGUID(extensible.SubFormat, KSDATAFORMAT_SUBTYPE_PCM))
+    return SampleFormat::IntegerPcm;
+
+  if (IsEqualGUID(extensible.SubFormat, KSDATAFORMAT_SUBTYPE_IEEE_FLOAT))
+  {
+    if (format.wBitsPerSample != 32)
+      throw std::runtime_error("Unsupported IEEE float sample size");
+
+    return SampleFormat::Float32;
+  }
+
+  throw std::runtime_error("Unsupported WAVEFORMATEXTENSIBLE subformat");
+}
+
+const wchar_t* sampleFormatName(SampleFormat format)
+{
+  switch (format)
+  {
+    case SampleFormat::IntegerPcm:
+      return L"Integer PCM";
+
+    case SampleFormat::Float32:
+      return L"32-bit IEEE float";
+  }
+
+  return L"Unknown";
+}
+
 RenderSide createRenderSide(IMMDevice* device, const WAVEFORMATEX* format)
 {
   RenderSide render;
@@ -183,14 +251,58 @@ RenderSide createRenderSide(IMMDevice* device, const WAVEFORMATEX* format)
 
 void printFormat(const WAVEFORMATEX& format)
 {
+  const auto sample_format = getSampleFormat(format);
+
   std::wcout
     << L"Input format:\n"
     << L"  Sample rate: " << format.nSamplesPerSec << L" Hz\n"
     << L"  Channels: " << format.nChannels << L'\n'
-    << L"  Bits/sample: " << format.wBitsPerSample << L"\n\n";
+    << L"  Bits/sample: " << format.wBitsPerSample << L'\n'
+    << L"  Block align: " << format.nBlockAlign << L" bytes/frame\n"
+    << L"  Format tag: 0x" << std::hex << format.wFormatTag << std::dec << L'\n'
+    << L"  Extra size: " << format.cbSize << L" bytes\n"
+    << L"  Sample format: " << sampleFormatName(sample_format) << L'\n';
+
+  if (format.wFormatTag == WAVE_FORMAT_EXTENSIBLE)
+  {
+    const auto& extensible = getExtensibleFormat(format);
+
+    std::wcout
+      << L"  Valid bits/sample: "
+      << extensible.Samples.wValidBitsPerSample << L'\n'
+      << L"  Channel mask: 0x"
+      << std::hex << extensible.dwChannelMask << std::dec << L'\n';
+  }
+
+  std::wcout << L'\n';
 }
 
-void forwardPacket(CaptureSide& capture, RenderSide& render, uint64_t& dropped_packets)
+size_t writeSilence(mitmegy::AudioFifo& fifo, size_t frames)
+{
+  size_t written = 0;
+
+  while (written < frames)
+  {
+    auto view = fifo.acquireWrite();
+
+    if (!view)
+      break;
+
+    for (size_t channel = 0; channel < view.channels(); ++channel)
+    {
+      auto samples = view.channel(channel);
+      std::fill(samples.begin(), samples.end(), 0.0f);
+    }
+
+    const size_t chunk = view.frames();
+    view.commit(chunk);
+    written += chunk;
+  }
+
+  return written;
+}
+
+void enqueueCapturePacket(CaptureSide& capture, mitmegy::AudioFifo& fifo, uint64_t& dropped_frames)
 {
   BYTE* capture_data = nullptr;
   UINT32 frames = 0;
@@ -202,87 +314,127 @@ void forwardPacket(CaptureSide& capture, RenderSide& render, uint64_t& dropped_p
     &capture_flags,
     nullptr,
     nullptr);
-  if (FAILED(hr)) throw std::runtime_error(formatHresult("Capture GetBuffer", hr));
-
-  UINT32 padding = 0;
-  hr = render.audio_client->GetCurrentPadding(&padding);
-  if (FAILED(hr))
-  {
-    capture.capture_client->ReleaseBuffer(frames);
-    throw std::runtime_error(formatHresult("Output GetCurrentPadding", hr));
-  }
-
-  const UINT32 available_frames = render.buffer_frames - padding;
-
-  if (frames > available_frames)
-  {
-    // SMOKE TEST:
-    // Drop the complete packet if the output cannot currently accept it.
-    //
-    // TODO:
-    // Replace this with a ring buffer.
-    ++dropped_packets;
-    capture.capture_client->ReleaseBuffer(frames);
-    return;
-  }
-
-  BYTE* render_data = nullptr;
-  hr = render.render_client->GetBuffer(frames, &render_data);
 
   if (FAILED(hr))
-  {
-    capture.capture_client->ReleaseBuffer(frames);
-    throw std::runtime_error(formatHresult("Output GetBuffer", hr));
-  }
+    throw std::runtime_error(formatHresult("Capture GetBuffer", hr));
 
-  DWORD output_flags = 0;
+  size_t written = 0;
 
   if (capture_flags & AUDCLNT_BUFFERFLAGS_SILENT)
-    output_flags = AUDCLNT_BUFFERFLAGS_SILENT;
-  else
-    std::memcpy(render_data, capture_data, 
-      static_cast<size_t>(frames) * capture.format->nBlockAlign);
-
-  hr = render.render_client->ReleaseBuffer(frames, output_flags);
-
-  if (FAILED(hr))
   {
-    capture.capture_client->ReleaseBuffer(frames);
-    throw std::runtime_error(formatHresult("Output ReleaseBuffer", hr));
+    written = writeSilence(fifo, frames);
+  }
+  else
+  {
+    const auto* samples = reinterpret_cast<const float*>(capture_data);
+
+    written = fifo.writeInterleaved(
+      std::span<const float>(
+        samples,
+        static_cast<size_t>(frames) * fifo.channels()),
+      frames);
   }
 
-  hr = capture.capture_client->ReleaseBuffer(frames);
-  if (FAILED(hr)) throw std::runtime_error(formatHresult("Capture ReleaseBuffer", hr));
+  dropped_frames += frames - written;
 
-  return;
+  hr = capture.capture_client->ReleaseBuffer(frames);
+
+  if (FAILED(hr))
+    throw std::runtime_error(formatHresult("Capture ReleaseBuffer", hr));
 }
 
-void runBridgeLoop(CaptureSide& capture, RenderSide& render, 
-                   const std::atomic_bool& running, uint64_t& dropped_packets)
+void processAudio(mitmegy::AudioFifo::ReadView& view, size_t frames)
+{
+  // passthrough for now
+}
+
+bool renderFromFifo(RenderSide& render, mitmegy::AudioFifo& fifo)
+{
+  UINT32 padding = 0;
+  HRESULT hr = render.audio_client->GetCurrentPadding(&padding);
+
+  if (FAILED(hr))
+    throw std::runtime_error(formatHresult("Output GetCurrentPadding", hr));
+
+  const size_t available_frames = render.buffer_frames - padding;
+
+  if (available_frames == 0)
+    return false;
+
+  auto view = fifo.acquireRead();
+
+  if (!view)
+    return false;
+
+  const size_t frames = std::min(view.frames(), available_frames);
+
+  processAudio(view, frames);
+
+  BYTE* render_data = nullptr;
+
+  hr = render.render_client->GetBuffer(
+    static_cast<UINT32>(frames),
+    &render_data);
+
+  if (FAILED(hr))
+    throw std::runtime_error(formatHresult("Output GetBuffer", hr));
+
+  auto* output =
+    reinterpret_cast<float*>(render_data);
+
+  for (size_t frame = 0; frame < frames; ++frame)
+  {
+    for (size_t channel = 0; channel < fifo.channels(); ++channel)
+    {
+      output[frame * fifo.channels() + channel] =
+        view.channel(channel)[frame];
+    }
+  }
+
+  hr = render.render_client->ReleaseBuffer(
+    static_cast<UINT32>(frames),
+    0);
+
+  if (FAILED(hr))
+    throw std::runtime_error(formatHresult("Output ReleaseBuffer", hr));
+
+  view.consume(frames);
+
+  return true;
+}
+
+void runBridgeLoop (CaptureSide& capture, RenderSide& render, mitmegy::AudioFifo& fifo,
+                    const std::atomic_bool& running, uint64_t& dropped_frames)
 {
   while (running.load(std::memory_order_relaxed))
   {
+    bool did_work = false;
     UINT32 packet_frames = 0;
     HRESULT hr = capture.capture_client->GetNextPacketSize(&packet_frames);
-    if (FAILED(hr)) throw std::runtime_error(formatHresult("GetNextPacketSize", hr));
 
-    if (packet_frames == 0)
-    {
-      // SMOKE TEST:
-      // Polling is sufficient for now.
-      //
-      // TODO:
-      // Replace with event-driven WASAPI notification.
-      Sleep(1);
-      continue;
-    }
+    if (FAILED(hr))
+      throw std::runtime_error(formatHresult("GetNextPacketSize", hr));
 
     while (packet_frames > 0)
     {
-      forwardPacket(capture, render, dropped_packets);
+      enqueueCapturePacket(
+        capture,
+        fifo,
+        dropped_frames);
+
+      did_work = true;
+
       hr = capture.capture_client->GetNextPacketSize(&packet_frames);
-      if (FAILED(hr)) throw std::runtime_error(formatHresult("GetNextPacketSize", hr));
+
+      if (FAILED(hr))
+        throw std::runtime_error(formatHresult("GetNextPacketSize", hr));
     }
+
+    if (renderFromFifo(render, fifo))
+      did_work = true;
+
+    if (!did_work)
+      Sleep(1);
   }
 }
 
@@ -427,9 +579,24 @@ void runAudioBridge(const Endpoint& audio_sink, const Endpoint& output, const st
   auto capture = createCaptureSide(input_device.Get());
   printFormat(*capture.format);
 
+  if (getSampleFormat(*capture.format) != SampleFormat::Float32)
+    throw std::runtime_error(
+      "Current bridge only supports 32-bit float AudioSink input");
+
+  if (capture.format->nBlockAlign !=
+      capture.format->nChannels * sizeof(float))
+  {
+    throw std::runtime_error(
+      "Unexpected AudioSink float frame layout");
+  }
+
   auto render = createRenderSide(output_device.Get(), capture.format.get());
   hr = render.audio_client->Start();
   if (FAILED(hr)) throw std::runtime_error(formatHresult("Output Start", hr));
+
+  // Temporary generous capacity while transport buffering is still untuned.
+  AudioFifo fifo (capture.format->nChannels,
+                  capture.format->nSamplesPerSec);
 
   hr = capture.audio_client->Start();
   if (FAILED(hr))
@@ -438,11 +605,11 @@ void runAudioBridge(const Endpoint& audio_sink, const Endpoint& output, const st
     throw std::runtime_error(formatHresult("Loopback Start", hr));
   }
 
-  uint64_t dropped_packets = 0;
+  uint64_t dropped_frames = 0;
 
   try
   {
-    runBridgeLoop(capture, render, running, dropped_packets);
+    runBridgeLoop(capture, render, fifo, running, dropped_frames);
   }
   catch(...)
   {
@@ -456,7 +623,7 @@ void runAudioBridge(const Endpoint& audio_sink, const Endpoint& output, const st
 
   std::wcout
     << L"\nStopped.\n"
-    << L"Dropped packets: " << dropped_packets << L'\n';
+    << L"Dropped frames: " << dropped_frames << L'\n';
 }
 
 } // namespace mitmegy
