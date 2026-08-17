@@ -6,6 +6,7 @@
 #include <functiondiscoverykeys_devpkey.h>
 #include <mmdeviceapi.h>
 #include <wrl/client.h>
+#include <ksmedia.h>
 
 #include <algorithm>
 #include <cwctype>
@@ -139,6 +140,72 @@ CaptureSide createCaptureSide(IMMDevice* device)
   return capture;
 }
 
+enum class SampleFormat
+{
+  IntegerPcm,
+  Float32
+};
+
+const WAVEFORMATEXTENSIBLE& getExtensibleFormat(const WAVEFORMATEX& format)
+{
+  if (format.wFormatTag != WAVE_FORMAT_EXTENSIBLE)
+    throw std::runtime_error("Audio format is not WAVE_FORMAT_EXTENSIBLE");
+
+  constexpr WORD required_extra_size =
+    sizeof(WAVEFORMATEXTENSIBLE) - sizeof(WAVEFORMATEX);
+
+  if (format.cbSize < required_extra_size)
+    throw std::runtime_error("Invalid WAVEFORMATEXTENSIBLE size");
+
+  return *reinterpret_cast<const WAVEFORMATEXTENSIBLE*>(&format);
+}
+
+SampleFormat getSampleFormat(const WAVEFORMATEX& format)
+{
+  if (format.wFormatTag == WAVE_FORMAT_PCM)
+    return SampleFormat::IntegerPcm;
+
+  if (format.wFormatTag == WAVE_FORMAT_IEEE_FLOAT)
+  {
+    if (format.wBitsPerSample != 32)
+      throw std::runtime_error("Unsupported IEEE float sample size");
+
+    return SampleFormat::Float32;
+  }
+
+  if (format.wFormatTag != WAVE_FORMAT_EXTENSIBLE)
+    throw std::runtime_error("Unsupported audio format");
+
+  const auto& extensible = getExtensibleFormat(format);
+
+  if (IsEqualGUID(extensible.SubFormat, KSDATAFORMAT_SUBTYPE_PCM))
+    return SampleFormat::IntegerPcm;
+
+  if (IsEqualGUID(extensible.SubFormat, KSDATAFORMAT_SUBTYPE_IEEE_FLOAT))
+  {
+    if (format.wBitsPerSample != 32)
+      throw std::runtime_error("Unsupported IEEE float sample size");
+
+    return SampleFormat::Float32;
+  }
+
+  throw std::runtime_error("Unsupported WAVEFORMATEXTENSIBLE subformat");
+}
+
+const wchar_t* sampleFormatName(SampleFormat format)
+{
+  switch (format)
+  {
+    case SampleFormat::IntegerPcm:
+      return L"Integer PCM";
+
+    case SampleFormat::Float32:
+      return L"32-bit IEEE float";
+  }
+
+  return L"Unknown";
+}
+
 RenderSide createRenderSide(IMMDevice* device, const WAVEFORMATEX* format)
 {
   RenderSide render;
@@ -183,11 +250,30 @@ RenderSide createRenderSide(IMMDevice* device, const WAVEFORMATEX* format)
 
 void printFormat(const WAVEFORMATEX& format)
 {
+  const auto sample_format = getSampleFormat(format);
+
   std::wcout
     << L"Input format:\n"
     << L"  Sample rate: " << format.nSamplesPerSec << L" Hz\n"
     << L"  Channels: " << format.nChannels << L'\n'
-    << L"  Bits/sample: " << format.wBitsPerSample << L"\n\n";
+    << L"  Bits/sample: " << format.wBitsPerSample << L'\n'
+    << L"  Block align: " << format.nBlockAlign << L" bytes/frame\n"
+    << L"  Format tag: 0x" << std::hex << format.wFormatTag << std::dec << L'\n'
+    << L"  Extra size: " << format.cbSize << L" bytes\n"
+    << L"  Sample format: " << sampleFormatName(sample_format) << L'\n';
+
+  if (format.wFormatTag == WAVE_FORMAT_EXTENSIBLE)
+  {
+    const auto& extensible = getExtensibleFormat(format);
+
+    std::wcout
+      << L"  Valid bits/sample: "
+      << extensible.Samples.wValidBitsPerSample << L'\n'
+      << L"  Channel mask: 0x"
+      << std::hex << extensible.dwChannelMask << std::dec << L'\n';
+  }
+
+  std::wcout << L'\n';
 }
 
 void forwardPacket(CaptureSide& capture, RenderSide& render, uint64_t& dropped_packets)
