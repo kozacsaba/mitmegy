@@ -1,5 +1,6 @@
 add_library(libmitmegy STATIC
   Audio.cpp
+  AudioFifo.cpp
   Com.cpp
 )
 
