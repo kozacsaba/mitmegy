@@ -38,10 +38,10 @@ void testPlanarViews()
   AudioFifo fifo(2, 8);
 
   {
-    auto view = fifo.acquireWrite(4);
+    auto view = fifo.acquireWrite();
 
     assert(view);
-    assert(view.frames() == 4);
+    assert(view.frames() == 8);
     assert(view.channels() == 2);
 
     auto left = view.channel(0);
@@ -59,7 +59,7 @@ void testPlanarViews()
   }
 
   {
-    auto view = fifo.acquireRead(4);
+    auto view = fifo.acquireRead();
 
     assert(view);
     assert(view.frames() == 4);
@@ -138,11 +138,8 @@ void testFullAndEmpty()
 void testPartialCommit()
 {
   AudioFifo fifo(1, 8);
-
-  auto view = fifo.acquireWrite(6);
-
+  auto view = fifo.acquireWrite();
   assert(view);
-  assert(view.frames() == 6);
 
   for (size_t i = 0; i < 6; ++i)
     view.channel(0)[i] = static_cast<float>(i + 1);
@@ -163,7 +160,7 @@ void testPartialConsume()
 
   assert(fifo.writeInterleaved(input, 6) == 6);
 
-  auto view = fifo.acquireRead(6);
+  auto view = fifo.acquireRead();
 
   assert(view);
   assert(view.frames() == 6);

@@ -42,7 +42,7 @@ size_t AudioFifo::writableFrames() const
   return capacity_frames_ - readableFrames();
 }
 
-AudioFifo::WriteView AudioFifo::acquireWrite(size_t max_frames)
+AudioFifo::WriteView AudioFifo::acquireWrite()
 {
   assert(!write_view_active_);
 
@@ -52,7 +52,7 @@ AudioFifo::WriteView AudioFifo::acquireWrite(size_t max_frames)
   const size_t writable = capacity_frames_ - (write - read);
   const size_t offset = write % capacity_frames_;
   const size_t contiguous = capacity_frames_ - offset;
-  const size_t frames = std::min({max_frames, writable, contiguous});
+  const size_t frames = std::min({writable, contiguous});
 
   if (frames == 0)
     return {};
@@ -62,7 +62,7 @@ AudioFifo::WriteView AudioFifo::acquireWrite(size_t max_frames)
   return WriteView(this, offset, frames);
 }
 
-AudioFifo::ReadView AudioFifo::acquireRead(size_t max_frames)
+AudioFifo::ReadView AudioFifo::acquireRead()
 {
   assert(!read_view_active_);
 
@@ -72,7 +72,7 @@ AudioFifo::ReadView AudioFifo::acquireRead(size_t max_frames)
   const size_t readable = write - read;
   const size_t offset = read % capacity_frames_;
   const size_t contiguous = capacity_frames_ - offset;
-  const size_t frames = std::min({max_frames, readable, contiguous});
+  const size_t frames = std::min({readable, contiguous});
 
   if (frames == 0)
     return {};
@@ -89,18 +89,18 @@ size_t AudioFifo::writeInterleaved(std::span<const float> src, size_t frames)
   size_t written = 0;
   while (written < frames)
   {
-    auto view = acquireWrite(frames - written);
+    auto view = acquireWrite();
     if (!view) break;
 
+    const size_t chunk = std::min(view.frames(), frames - written);
     for (size_t channel = 0; channel < channels_; ++channel)
     {
       auto destination = view.channel(channel);
 
-      for (size_t frame = 0; frame < view.frames(); ++frame)
+      for (size_t frame = 0; frame < chunk; ++frame)
         destination[frame] = src[(written + frame) * channels_ + channel];
     }
 
-    const size_t chunk = view.frames();
     view.commit(chunk);
     written += chunk;
   }
@@ -115,18 +115,18 @@ size_t AudioFifo::readInterleaved(std::span<float> dst, size_t frames)
   size_t read = 0;
   while (read < frames)
   {
-    auto view = acquireRead(frames - read);
+    auto view = acquireRead();
     if (!view) break;
 
+    const size_t chunk = std::min(view.frames(), frames - read);
     for (size_t channel = 0; channel < channels_; ++channel)
     {
       auto source = view.channel(channel);
 
-      for (size_t frame = 0; frame < view.frames(); ++frame)
+      for (size_t frame = 0; frame < chunk; ++frame)
         dst[(read + frame) * channels_ + channel] = source[frame];
     }
 
-    const size_t chunk = view.frames();
     view.consume(chunk);
     read += chunk;
   }

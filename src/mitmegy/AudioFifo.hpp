@@ -23,8 +23,8 @@ public:
   size_t readableFrames() const;
   size_t writableFrames() const;
 
-  WriteView acquireWrite(size_t max_frames);
-  ReadView acquireRead(size_t max_frames);
+  WriteView acquireWrite();
+  ReadView acquireRead();
 
   size_t writeInterleaved(std::span<const float> source, size_t frames);
   size_t readInterleaved(std::span<float> destination, size_t frames);
