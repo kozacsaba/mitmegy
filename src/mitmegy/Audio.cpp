@@ -479,6 +479,33 @@ void runBridgeLoop (CaptureSide& capture, RenderSide& render, mitmegy::AudioFifo
   }
 }
 
+void prefillFifo(CaptureSide& capture, mitmegy::AudioFifo& fifo, size_t target_frames,
+                 const std::atomic_bool& running, TransportStats& stats)
+{
+  while(running.load(std::memory_order_relaxed) && fifo.readableFrames() < target_frames)
+  {
+    UINT32 packet_frames = 0;
+    HRESULT hr = capture.capture_client->GetNextPacketSize(&packet_frames);
+    if (FAILED(hr))
+      throw std::runtime_error(formatHresult("GetNextPacketSize", hr));
+
+    if (packet_frames == 0)
+    {
+      Sleep(1);
+      continue;
+    }
+
+    while (packet_frames > 0 && fifo.readableFrames() < target_frames)
+    {
+      enqueueCapturePacket(capture, fifo, stats);
+
+      hr = capture.capture_client->GetNextPacketSize(&packet_frames);
+      if (FAILED(hr))
+        throw std::runtime_error(formatHresult("GetNextPacketSize", hr));
+    }
+  }
+}
+
 class PropVariant
 {
 public:
@@ -621,47 +648,63 @@ void runAudioBridge(const Endpoint& audio_sink, const Endpoint& output, const st
   printFormat(*capture.format);
 
   if (getSampleFormat(*capture.format) != SampleFormat::Float32)
-    throw std::runtime_error(
-      "Current bridge only supports 32-bit float AudioSink input");
+    throw std::runtime_error("Current bridge only supports 32-bit float AudioSink input");
 
-  if (capture.format->nBlockAlign !=
-      capture.format->nChannels * sizeof(float))
+  if (capture.format->nBlockAlign != capture.format->nChannels * sizeof(float))
   {
-    throw std::runtime_error(
-      "Unexpected AudioSink float frame layout");
+    throw std::runtime_error("Unexpected AudioSink float frame layout");
   }
 
   auto render = createRenderSide(output_device.Get(), capture.format.get());
-  hr = render.audio_client->Start();
-  if (FAILED(hr)) throw std::runtime_error(formatHresult("Output Start", hr));
 
   // Temporary generous capacity while transport buffering is still untuned.
-  AudioFifo fifo (capture.format->nChannels,
-                  capture.format->nSamplesPerSec);
+  AudioFifo fifo(
+    capture.format->nChannels,
+    capture.format->nSamplesPerSec);
+
+  TransportStats stats{};
+  stats.observeFifo(fifo);
 
   hr = capture.audio_client->Start();
-  if (FAILED(hr))
-  {
-    render.audio_client->Stop();
-    throw std::runtime_error(formatHresult("Loopback Start", hr));
-  }
-
-  TransportStats stats {};
-  stats.observeFifo(fifo);
+  if (FAILED(hr)) throw std::runtime_error(formatHresult("Loopback Start", hr));
 
   try
   {
-    runBridgeLoop(capture, render, fifo, running, stats);
+    constexpr size_t prefill_ms = 50;
+
+    const size_t prefill_frames =
+      static_cast<size_t>(capture.format->nSamplesPerSec * prefill_ms / 1000);
+
+    prefillFifo(capture, fifo, prefill_frames, running, stats);
+
+    if (running.load(std::memory_order_relaxed))
+    {
+      // Prime the WASAPI render buffer before starting playback.
+      renderFromFifo(render, fifo, stats);
+
+      hr = render.audio_client->Start();
+      if (FAILED(hr)) throw std::runtime_error(formatHresult("Output Start", hr));
+
+      try
+      {
+        runBridgeLoop(capture, render, fifo, running, stats);
+      }
+      catch (...)
+      {
+        render.audio_client->Stop();
+        throw;
+      }
+
+      render.audio_client->Stop();
+    }
   }
-  catch(...)
+  catch (...)
   {
     capture.audio_client->Stop();
-    render.audio_client->Stop();
     throw;
   }
 
   capture.audio_client->Stop();
-  render.audio_client->Stop();
 
   std::wcout
     << L"\nStopped.\n"

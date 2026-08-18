@@ -7,11 +7,6 @@ Priority: **P0 / P1 / P2 / P3**
    - Detect NaN/Inf and obviously invalid output.
    - Provide emergency mute or safe bypass behavior.
 
-7. **Add startup FIFO prefill — S / P1**
-   - Capture audio until a configurable target FIFO level is reached before beginning normal render consumption.
-
-8. **Add basic transport statistics — S / P1**
-   - Track captured/rendered frames, FIFO fill level, min/max fill, underruns, overruns, dropped frames and capture discontinuities.
 
 
 
