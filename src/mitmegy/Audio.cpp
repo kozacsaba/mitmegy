@@ -17,6 +17,7 @@
 #include <optional>
 #include <sstream>
 #include <limits>
+#include <cmath>
 
 using Microsoft::WRL::ComPtr;
 
@@ -380,6 +381,36 @@ void processAudio(mitmegy::AudioFifo::ReadView& view, size_t frames)
   // passthrough for now
 }
 
+void guardOutput(mitmegy::AudioFifo::ReadView& view, size_t frames)
+{
+  bool invalid = false;
+
+  for (size_t channel = 0; channel < view.channels(); ++channel)
+  {
+    const auto samples = view.channel(channel);
+    for (size_t frame = 0; frame < frames; ++frame)
+    {
+      if (!std::isfinite(samples[frame]))
+      {
+        invalid = true;
+        break;
+      }
+    }
+
+    if (invalid)
+      break;
+  }
+
+  if (!invalid)
+    return;
+
+  for (size_t channel = 0; channel < view.channels(); ++channel)
+  {
+    auto samples = view.channel(channel);
+    std::fill_n(samples.begin(), frames, 0.0f);
+  }
+}
+
 bool renderFromFifo(RenderSide& render, mitmegy::AudioFifo& fifo, TransportStats& stats)
 {
   UINT32 padding = 0;
@@ -407,6 +438,7 @@ bool renderFromFifo(RenderSide& render, mitmegy::AudioFifo& fifo, TransportStats
   const size_t frames = std::min(view.frames(), available_frames);
 
   processAudio(view, frames);
+  guardOutput(view, frames);
 
   BYTE* render_data = nullptr;
 
@@ -417,9 +449,7 @@ bool renderFromFifo(RenderSide& render, mitmegy::AudioFifo& fifo, TransportStats
   if (FAILED(hr))
     throw std::runtime_error(formatHresult("Output GetBuffer", hr));
 
-  auto* output =
-    reinterpret_cast<float*>(render_data);
-
+  auto* output = reinterpret_cast<float*>(render_data);
   for (size_t frame = 0; frame < frames; ++frame)
   {
     for (size_t channel = 0; channel < fifo.channels(); ++channel)
@@ -430,8 +460,7 @@ bool renderFromFifo(RenderSide& render, mitmegy::AudioFifo& fifo, TransportStats
   }
 
   hr = render.render_client->ReleaseBuffer(
-    static_cast<UINT32>(frames),
-    0);
+    static_cast<UINT32>(frames), 0);
 
   if (FAILED(hr))
     throw std::runtime_error(formatHresult("Output ReleaseBuffer", hr));
