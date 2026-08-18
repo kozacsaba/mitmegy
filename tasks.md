@@ -3,14 +3,6 @@
 Size: **S / M / L / XL**  
 Priority: **P0 / P1 / P2 / P3**
 
-6. **Add emergency output safety guard — S / P0**
-   - Detect NaN/Inf and obviously invalid output.
-   - Provide emergency mute or safe bypass behavior.
-
-
-
-
-
 9. **Integrate JUCE — M / P1**
    - Add the required JUCE modules through CMake.
    - Use JUCE for plugin hosting and audio-processing abstractions without replacing the custom WASAPI transport.
