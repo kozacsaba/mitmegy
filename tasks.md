@@ -3,20 +3,6 @@
 Size: **S / M / L / XL**  
 Priority: **P0 / P1 / P2 / P3**
 
-5. **Implement passthrough processing — S / P0**
-   - Run audio through the new processing path unchanged.
-   - Verify that the FIFO, conversion and block architecture works correctly.
-
-6. **Add emergency output safety guard — S / P0**
-   - Detect NaN/Inf and obviously invalid output.
-   - Provide emergency mute or safe bypass behavior.
-
-7. **Add startup FIFO prefill — S / P1**
-   - Capture audio until a configurable target FIFO level is reached before beginning normal render consumption.
-
-8. **Add basic transport statistics — S / P1**
-   - Track captured/rendered frames, FIFO fill level, min/max fill, underruns, overruns, dropped frames and capture discontinuities.
-
 9. **Integrate JUCE — M / P1**
    - Add the required JUCE modules through CMake.
    - Use JUCE for plugin hosting and audio-processing abstractions without replacing the custom WASAPI transport.

@@ -16,6 +16,8 @@
 #include <memory>
 #include <optional>
 #include <sstream>
+#include <limits>
+#include <cmath>
 
 using Microsoft::WRL::ComPtr;
 
@@ -27,6 +29,28 @@ namespace
 
 constexpr std::wstring_view kAudioSinkName =
   MITMEGY_WIDEN(MITMEGY_AUDIO_SINK_NAME);
+
+struct TransportStats
+{
+  uint64_t captured_frames = 0;
+  uint64_t rendered_frames = 0;
+
+  uint64_t underruns = 0;
+  uint64_t overruns = 0;
+  uint64_t dropped_frames = 0;
+  uint64_t capture_discontinuities = 0;
+
+  size_t fifo_min_fill = std::numeric_limits<size_t>::max();
+  size_t fifo_max_fill = 0;
+
+  void observeFifo(const mitmegy::AudioFifo& fifo)
+  {
+    const size_t fill = fifo.readableFrames();
+
+    fifo_min_fill = std::min(fifo_min_fill, fill);
+    fifo_max_fill = std::max(fifo_max_fill, fill);
+  }
+};
 
 std::string formatHresult(const char* operation, HRESULT hr)
 {
@@ -302,7 +326,7 @@ size_t writeSilence(mitmegy::AudioFifo& fifo, size_t frames)
   return written;
 }
 
-void enqueueCapturePacket(CaptureSide& capture, mitmegy::AudioFifo& fifo, uint64_t& dropped_frames)
+void enqueueCapturePacket(CaptureSide& capture, mitmegy::AudioFifo& fifo, TransportStats& stats)
 {
   BYTE* capture_data = nullptr;
   UINT32 frames = 0;
@@ -317,6 +341,10 @@ void enqueueCapturePacket(CaptureSide& capture, mitmegy::AudioFifo& fifo, uint64
 
   if (FAILED(hr))
     throw std::runtime_error(formatHresult("Capture GetBuffer", hr));
+
+  stats.captured_frames += frames;
+  if (capture_flags & AUDCLNT_BUFFERFLAGS_DATA_DISCONTINUITY)
+    ++stats.capture_discontinuities;
 
   size_t written = 0;
 
@@ -335,7 +363,12 @@ void enqueueCapturePacket(CaptureSide& capture, mitmegy::AudioFifo& fifo, uint64
       frames);
   }
 
-  dropped_frames += frames - written;
+  if (written < frames)
+  {
+    ++stats.overruns;
+    stats.dropped_frames += frames - written;
+  }
+  stats.observeFifo(fifo);
 
   hr = capture.capture_client->ReleaseBuffer(frames);
 
@@ -348,7 +381,37 @@ void processAudio(mitmegy::AudioFifo::ReadView& view, size_t frames)
   // passthrough for now
 }
 
-bool renderFromFifo(RenderSide& render, mitmegy::AudioFifo& fifo)
+void guardOutput(mitmegy::AudioFifo::ReadView& view, size_t frames)
+{
+  bool invalid = false;
+
+  for (size_t channel = 0; channel < view.channels(); ++channel)
+  {
+    const auto samples = view.channel(channel);
+    for (size_t frame = 0; frame < frames; ++frame)
+    {
+      if (!std::isfinite(samples[frame]))
+      {
+        invalid = true;
+        break;
+      }
+    }
+
+    if (invalid)
+      break;
+  }
+
+  if (!invalid)
+    return;
+
+  for (size_t channel = 0; channel < view.channels(); ++channel)
+  {
+    auto samples = view.channel(channel);
+    std::fill_n(samples.begin(), frames, 0.0f);
+  }
+}
+
+bool renderFromFifo(RenderSide& render, mitmegy::AudioFifo& fifo, TransportStats& stats)
 {
   UINT32 padding = 0;
   HRESULT hr = render.audio_client->GetCurrentPadding(&padding);
@@ -361,6 +424,12 @@ bool renderFromFifo(RenderSide& render, mitmegy::AudioFifo& fifo)
   if (available_frames == 0)
     return false;
 
+  if (padding == 0 && fifo.readableFrames() == 0)
+  {
+    ++stats.underruns;
+    return false;
+  }
+
   auto view = fifo.acquireRead();
 
   if (!view)
@@ -369,6 +438,7 @@ bool renderFromFifo(RenderSide& render, mitmegy::AudioFifo& fifo)
   const size_t frames = std::min(view.frames(), available_frames);
 
   processAudio(view, frames);
+  guardOutput(view, frames);
 
   BYTE* render_data = nullptr;
 
@@ -379,9 +449,7 @@ bool renderFromFifo(RenderSide& render, mitmegy::AudioFifo& fifo)
   if (FAILED(hr))
     throw std::runtime_error(formatHresult("Output GetBuffer", hr));
 
-  auto* output =
-    reinterpret_cast<float*>(render_data);
-
+  auto* output = reinterpret_cast<float*>(render_data);
   for (size_t frame = 0; frame < frames; ++frame)
   {
     for (size_t channel = 0; channel < fifo.channels(); ++channel)
@@ -392,19 +460,21 @@ bool renderFromFifo(RenderSide& render, mitmegy::AudioFifo& fifo)
   }
 
   hr = render.render_client->ReleaseBuffer(
-    static_cast<UINT32>(frames),
-    0);
+    static_cast<UINT32>(frames), 0);
 
   if (FAILED(hr))
     throw std::runtime_error(formatHresult("Output ReleaseBuffer", hr));
 
   view.consume(frames);
 
+  stats.rendered_frames += frames;
+  stats.observeFifo(fifo);
+
   return true;
 }
 
 void runBridgeLoop (CaptureSide& capture, RenderSide& render, mitmegy::AudioFifo& fifo,
-                    const std::atomic_bool& running, uint64_t& dropped_frames)
+                    const std::atomic_bool& running, TransportStats& stats)
 {
   while (running.load(std::memory_order_relaxed))
   {
@@ -420,7 +490,7 @@ void runBridgeLoop (CaptureSide& capture, RenderSide& render, mitmegy::AudioFifo
       enqueueCapturePacket(
         capture,
         fifo,
-        dropped_frames);
+        stats);
 
       did_work = true;
 
@@ -430,11 +500,38 @@ void runBridgeLoop (CaptureSide& capture, RenderSide& render, mitmegy::AudioFifo
         throw std::runtime_error(formatHresult("GetNextPacketSize", hr));
     }
 
-    if (renderFromFifo(render, fifo))
+    if (renderFromFifo(render, fifo, stats))
       did_work = true;
 
     if (!did_work)
       Sleep(1);
+  }
+}
+
+void prefillFifo(CaptureSide& capture, mitmegy::AudioFifo& fifo, size_t target_frames,
+                 const std::atomic_bool& running, TransportStats& stats)
+{
+  while(running.load(std::memory_order_relaxed) && fifo.readableFrames() < target_frames)
+  {
+    UINT32 packet_frames = 0;
+    HRESULT hr = capture.capture_client->GetNextPacketSize(&packet_frames);
+    if (FAILED(hr))
+      throw std::runtime_error(formatHresult("GetNextPacketSize", hr));
+
+    if (packet_frames == 0)
+    {
+      Sleep(1);
+      continue;
+    }
+
+    while (packet_frames > 0 && fifo.readableFrames() < target_frames)
+    {
+      enqueueCapturePacket(capture, fifo, stats);
+
+      hr = capture.capture_client->GetNextPacketSize(&packet_frames);
+      if (FAILED(hr))
+        throw std::runtime_error(formatHresult("GetNextPacketSize", hr));
+    }
   }
 }
 
@@ -580,50 +677,76 @@ void runAudioBridge(const Endpoint& audio_sink, const Endpoint& output, const st
   printFormat(*capture.format);
 
   if (getSampleFormat(*capture.format) != SampleFormat::Float32)
-    throw std::runtime_error(
-      "Current bridge only supports 32-bit float AudioSink input");
+    throw std::runtime_error("Current bridge only supports 32-bit float AudioSink input");
 
-  if (capture.format->nBlockAlign !=
-      capture.format->nChannels * sizeof(float))
+  if (capture.format->nBlockAlign != capture.format->nChannels * sizeof(float))
   {
-    throw std::runtime_error(
-      "Unexpected AudioSink float frame layout");
+    throw std::runtime_error("Unexpected AudioSink float frame layout");
   }
 
   auto render = createRenderSide(output_device.Get(), capture.format.get());
-  hr = render.audio_client->Start();
-  if (FAILED(hr)) throw std::runtime_error(formatHresult("Output Start", hr));
 
   // Temporary generous capacity while transport buffering is still untuned.
-  AudioFifo fifo (capture.format->nChannels,
-                  capture.format->nSamplesPerSec);
+  AudioFifo fifo(
+    capture.format->nChannels,
+    capture.format->nSamplesPerSec);
+
+  TransportStats stats{};
+  stats.observeFifo(fifo);
 
   hr = capture.audio_client->Start();
-  if (FAILED(hr))
-  {
-    render.audio_client->Stop();
-    throw std::runtime_error(formatHresult("Loopback Start", hr));
-  }
-
-  uint64_t dropped_frames = 0;
+  if (FAILED(hr)) throw std::runtime_error(formatHresult("Loopback Start", hr));
 
   try
   {
-    runBridgeLoop(capture, render, fifo, running, dropped_frames);
+    constexpr size_t prefill_ms = 50;
+
+    const size_t prefill_frames =
+      static_cast<size_t>(capture.format->nSamplesPerSec * prefill_ms / 1000);
+
+    prefillFifo(capture, fifo, prefill_frames, running, stats);
+
+    if (running.load(std::memory_order_relaxed))
+    {
+      // Prime the WASAPI render buffer before starting playback.
+      renderFromFifo(render, fifo, stats);
+
+      hr = render.audio_client->Start();
+      if (FAILED(hr)) throw std::runtime_error(formatHresult("Output Start", hr));
+
+      try
+      {
+        runBridgeLoop(capture, render, fifo, running, stats);
+      }
+      catch (...)
+      {
+        render.audio_client->Stop();
+        throw;
+      }
+
+      render.audio_client->Stop();
+    }
   }
-  catch(...)
+  catch (...)
   {
     capture.audio_client->Stop();
-    render.audio_client->Stop();
     throw;
   }
 
   capture.audio_client->Stop();
-  render.audio_client->Stop();
 
   std::wcout
     << L"\nStopped.\n"
-    << L"Dropped frames: " << dropped_frames << L'\n';
+    << L"Captured frames: " << stats.captured_frames << L'\n'
+    << L"Rendered frames: " << stats.rendered_frames << L'\n'
+    << L"FIFO fill: " << fifo.readableFrames() << L'\n'
+    << L"FIFO min fill: " << stats.fifo_min_fill << L'\n'
+    << L"FIFO max fill: " << stats.fifo_max_fill << L'\n'
+    << L"Underruns: " << stats.underruns << L'\n'
+    << L"Overruns: " << stats.overruns << L'\n'
+    << L"Dropped frames: " << stats.dropped_frames << L'\n'
+    << L"Capture discontinuities: "
+    << stats.capture_discontinuities << L'\n';
 }
 
 } // namespace mitmegy
