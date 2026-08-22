@@ -191,8 +191,7 @@ int wmain(int argc, wchar_t* argv[])
       << L"    ID: " << output->id << L"\n\n"
       << L"Forwarding:\n"
       << L"    " << audio_sink->name << L"\n"
-      << L"        -> " << output->name << L"\n\n"
-      << L"Press Ctrl+C to stop.\n";
+      << L"        -> " << output->name << L"\n\n";
 
     auto process = [](mitmegy::AudioFifo::ReadView&, size_t)
     {
@@ -201,6 +200,7 @@ int wmain(int argc, wchar_t* argv[])
 
     mitmegy::AudioEngine engine(*audio_sink, *output, process);
     printFormat(engine.inputFormat());
+    std::wcout << L"Press Ctrl+C to stop.\n";
 
     engine.run(g_running);
     
