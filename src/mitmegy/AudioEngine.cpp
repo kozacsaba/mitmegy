@@ -47,6 +47,11 @@ SampleFormat AudioEngine::inputSampleFormat() const
   return capture_.sampleFormat();
 }
 
+size_t AudioEngine::maxBlockSize() const
+{
+  return render_.bufferFrames();
+}
+
 void AudioEngine::capturePacket()
 {
   const CaptureResult result = capture_.captureInto(fifo_);

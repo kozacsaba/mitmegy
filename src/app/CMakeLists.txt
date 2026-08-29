@@ -7,4 +7,5 @@ add_executable(mitmegy
 target_link_libraries(mitmegy
   PRIVATE
     libmitmegy
+    vsthost
 )

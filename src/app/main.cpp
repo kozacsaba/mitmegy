@@ -1,6 +1,7 @@
 #include "mitmegy/AudioEngine.hpp"
 #include "mitmegy/Wasapi.hpp"
 #include "mitmegy/Com.hpp"
+#include "vsthost/PluginChain.hpp"
 
 #include <windows.h>
 
@@ -193,17 +194,31 @@ int wmain(int argc, wchar_t* argv[])
       << L"    " << audio_sink->name << L"\n"
       << L"        -> " << output->name << L"\n\n";
 
-    auto process = [](mitmegy::AudioFifo::ReadView&, size_t)
+    mitmegy::PluginChain plugin_chain;
+    auto process = [&](mitmegy::AudioFifo::ReadView& view, size_t frames)
     {
-      // Passthrough for now.
+      std::array<float*, 8> channels{};
+
+      for (size_t channel = 0; channel < view.channels(); ++channel)
+        channels[channel] = view.channel(channel).data();
+
+      juce::AudioBuffer<float> buffer(
+        channels.data(),
+        static_cast<int>(view.channels()),
+        static_cast<int>(frames));
+
+      plugin_chain.processBlock(buffer);
     };
 
     mitmegy::AudioEngine engine(*audio_sink, *output, process);
-    printFormat(engine.inputFormat());
-    std::wcout << L"Press Ctrl+C to stop.\n";
-
-    engine.run(g_running);
+    const auto& format = engine.inputFormat();
+    plugin_chain.prepareToPlay(format.nSamplesPerSec, engine.maxBlockSize());
+    printFormat(format);
     
+    std::wcout << L"Press Ctrl+C to stop.\n";
+    engine.run(g_running);
+
+    plugin_chain.releaseResources();
     printStats(engine.stats());
 
     return 0;

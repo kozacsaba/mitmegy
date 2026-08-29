@@ -78,13 +78,14 @@ void PluginChain::prepareToPlay(double sample_rate, int max_block_size)
 void PluginChain::processBlock(juce::AudioBuffer<float>& buffer)
 {
   jassert(prepared_);
+  juce::MidiBuffer midi{};
 
   if (!prepared_)
     return;
 
   for (auto& plugin : plugins_)
     if (!plugin.bypassed)
-      plugin.instance->processBlock(buffer, juce::MidiBuffer{});
+      plugin.instance->processBlock(buffer, midi);
 }
 
 void PluginChain::releaseResources()
