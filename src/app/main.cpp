@@ -2,6 +2,7 @@
 #include "mitmegy/Wasapi.hpp"
 #include "mitmegy/Com.hpp"
 #include "vsthost/PluginChain.hpp"
+#include "vsthost/PluginRegistry.hpp"
 
 #include <windows.h>
 
@@ -150,6 +151,9 @@ int wmain(int argc, wchar_t* argv[])
 {
   try
   {
+    // MARK: PREP
+    // =========================================================================
+
     mitmegy::ComScope com;
 
     if (!com.ok()) throw std::runtime_error(
@@ -157,6 +161,9 @@ int wmain(int argc, wchar_t* argv[])
         std::format("{:x}", (unsigned long)com.result()));
 
     SetConsoleCtrlHandler(consoleHandler, TRUE);
+
+    // MARK: ENDPOINTS
+    // =========================================================================
 
     std::vector<mitmegy::Endpoint> endpoints;
     mitmegy::enumerateRenderEndpoints(endpoints);
@@ -194,7 +201,56 @@ int wmain(int argc, wchar_t* argv[])
       << L"    " << audio_sink->name << L"\n"
       << L"        -> " << output->name << L"\n\n";
 
+    // MARK: VST SELECT
+
+    mitmegy::PluginRegistry registry;
+    std::cout << "Scanning plugins" << std::endl;
+    registry.scan();
+    std::cout << std::endl;
+
+    const auto& plugins = registry.plugins().getTypes();
+
+    for (int i = 0; i < plugins.size(); ++i)
+    {
+      const auto& plugin = plugins.getReference(i);
+
+      std::cout
+        << "[" << i << "] "
+        << plugin.name
+        << " - "
+        << plugin.manufacturerName
+        << '\n';
+    }
+
+    std::cout << "\nSelect plugin index: ";
+
+    int index = -1;
+    std::cin >> index;
+
+    if (index < 0 || index >= plugins.size())
+      throw std::runtime_error("Invalid plugin index");
+
+    const auto& description = plugins.getReference(index);
+
+    std::cout
+      << "\nSelected plugin:\n"
+      << "  Name: " << description.name << '\n'
+      << "  Manufacturer: " << description.manufacturerName << '\n'
+      << "  Format: " << description.pluginFormatName << '\n'
+      << "  Identifier: " << description.createIdentifierString() << '\n'
+      << "  File: " << description.fileOrIdentifier << "\n\n";
+
+    auto plugin = registry.createInstance(description);
+
+    std::cout
+      << "\nCreated instance: "
+      << plugin->getName()
+      << '\n';
+
+    // MARK: VST HOST
+
     mitmegy::PluginChain plugin_chain;
+    plugin_chain.add(std::move(plugin));
     auto process = [&](mitmegy::AudioFifo::ReadView& view, size_t frames)
     {
       std::array<float*, 8> channels{};
@@ -214,7 +270,7 @@ int wmain(int argc, wchar_t* argv[])
     const auto& format = engine.inputFormat();
     plugin_chain.prepareToPlay(format.nSamplesPerSec, engine.maxBlockSize());
     printFormat(format);
-    
+
     std::wcout << L"Press Ctrl+C to stop.\n";
     engine.run(g_running);
 
