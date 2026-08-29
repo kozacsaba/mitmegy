@@ -10,9 +10,11 @@ function(add_tool tool_name)
   target_link_libraries(${tool_name}
     PRIVATE
       libmitmegy
+      vsthost
   )
 
   add_dependencies(all_tools ${tool_name})
 endfunction()
 
 add_tool(bridge)
+add_tool(scan)

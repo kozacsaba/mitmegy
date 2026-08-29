@@ -1,0 +1,21 @@
+# vsthost
+
+add_library(vsthost STATIC
+  PluginChain.cpp
+  PluginRegistry.cpp
+)
+
+target_include_directories(vsthost
+  PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/..
+)
+
+target_link_libraries(vsthost
+  PUBLIC
+    juce::juce_audio_processors
+)
+
+target_compile_definitions(vsthost
+  PUBLIC
+    JUCE_PLUGINHOST_VST3=1
+)
