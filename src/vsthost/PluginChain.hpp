@@ -11,32 +11,65 @@ namespace mitmegy
 
 class PluginChain
 {
+private:
+  struct Plugin;
+
 public:
-  using Index = std::size_t;
+  using PluginID = size_t;
 
-  void add(std::unique_ptr<juce::AudioPluginInstance> plugin);
-  void remove(Index index);
+  PluginChain();
+  ~PluginChain();
 
-  [[nodiscard]] std::size_t size() const noexcept;
-  [[nodiscard]] juce::AudioPluginInstance& plugin(Index index);
-  [[nodiscard]] const juce::AudioPluginInstance& plugin(Index index) const;
-  void setBypassed(Index index, bool bypassed);
-  [[nodiscard]] bool isBypassed(Index index) const;
+  PluginChain(PluginChain&&) = delete;
+  PluginChain(const PluginChain&) = delete;
+  PluginChain& operator=(PluginChain&&) = delete;
+  PluginChain& operator=(const PluginChain&&) = delete;
 
-  void prepareToPlay(double sample_rate, int max_block_size);
+  // DO NOT CALL LIVE. Stop the processing, configure, and start it again. 
+  void configure(double sampleRate, int maxBlockSize);
   void processBlock(juce::AudioBuffer<float>& buffer);
-  void releaseResources();
+
+  // processBlock does the actualy switch
+  void add(int index, std::unique_ptr<juce::AudioPluginInstance>&& plugin);
+  // processBlock does the actualy switch
+  void remove(PluginID id);
+
+  std::size_t size() const noexcept;
+  std::shared_ptr<Plugin> plugin_at(size_t index);
+  std::shared_ptr<const Plugin> plugin_at(size_t index) const;
+  std::shared_ptr<Plugin> plugin_id(const PluginID& id);
+  std::shared_ptr<const Plugin> plugin_id(const PluginID& id) const;
 
 private:
-  struct Plugin
-  {
-    std::unique_ptr<juce::AudioPluginInstance> instance;
-    bool bypassed = false;
-  };
+  juce::MidiBuffer midi_{};
+  double sampleRate_ = 0.0;
+  int maxBlockSize_ = 0;
 
-  std::vector<Plugin> plugins_;
+  std::atomic<bool> switch_request_ = false;
+  using Chain = std::vector<std::shared_ptr<Plugin>>;
 
-  bool prepared_ = false;
-};
+  Chain chain_a_;
+  Chain chain_b_;
 
-}
+  std::atomic<Chain*> live_;
+  std::atomic<Chain*> stage_;
+
+}; // PluginChain
+
+class PluginChain::Plugin
+{
+public:
+  Plugin (std::unique_ptr<juce::AudioPluginInstance>&& instance,
+          double sampleRate, int maxBlockSize);
+  ~Plugin();
+
+  std::unique_ptr<juce::AudioPluginInstance> instance_;
+  const PluginID runtime_id_;
+  const juce::String IdentifierString_; // used for creating the same plugin in another sesison
+  std::atomic<bool> bypassed_ = true;
+
+private:
+  inline static PluginID global_id_ = 0;
+}; // Plugin
+
+} // namespace mitmegy
