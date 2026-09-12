@@ -159,33 +159,41 @@ void PluginChain::remove(PluginID id)
   }
 }
 
-// DONE UNTIL THIS LINE
-// -------------------------------------------------------------------------------------
-
 std::size_t PluginChain::size() const noexcept
 {
-  return plugins_.size();
+  // live_ being a nullptr *COULD* throw... leaving that in, because live_ should never
+  // be nullptr under healthy operation
+  return live_.load()->size();
 }
 
-  std::shared_ptr<Plugin> plugin_at(size_t index);
-  std::shared_ptr<const Plugin> plugin_at(size_t index) const;
-  std::shared_ptr<Plugin> plugin_id(const PluginID& id);
-  std::shared_ptr<const Plugin> plugin_id(const PluginID& id) const;
-
-juce::AudioPluginInstance& PluginChain::plugin(Index index)
+std::shared_ptr<PluginChain::Plugin> PluginChain::plugin_at(size_t index)
 {
-  if (index >= plugins_.size())
-    throw std::out_of_range("Plugin index out of range");
-
-  return *plugins_[index].instance;
+  return (*live_.load())[index];
 }
 
-const juce::AudioPluginInstance& PluginChain::plugin(Index index) const
+std::shared_ptr<const PluginChain::Plugin> PluginChain::plugin_at(size_t index) const
 {
-  if (index >= plugins_.size())
-    throw std::out_of_range("Plugin index out of range");
+  return (*live_.load())[index];
+}
 
-  return *plugins_[index].instance;
+std::shared_ptr<PluginChain::Plugin> PluginChain::plugin_id(const PluginID& id)
+{
+  return std::const_pointer_cast<Plugin>(
+    std::as_const(*this).plugin_id(id));
+}
+
+std::shared_ptr<const PluginChain::Plugin> PluginChain::plugin_id(const PluginID& id) const
+{
+  const auto& live = *live_.load();
+  const auto it = std::find_if(
+    live.begin(), live.end(), 
+    [&](const std::shared_ptr<PluginChain::Plugin>& elem)
+    { return elem->runtime_id_ == id; });
+
+  if(it == live.end())
+    return nullptr;
+  else
+    return *it;
 }
 
 } // namespace mitmegy
