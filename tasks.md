@@ -3,15 +3,6 @@
 Size: **S / M / L / XL**  
 Priority: **P0 / P1 / P2 / P3**
 
-10. **Host and process through one VST3 plugin — M / P1**
-    - Discover/load a VST3 plugin.
-    - Configure it with the engine sample rate, block size and channel layout.
-    - Pass internal audio blocks through `processBlock()`.
-
-11. **Add simple serial plugin chain — M / P1**
-    - Support multiple plugins processed sequentially.
-    - Add basic plugin enable/bypass and lifecycle handling.
-
 12. **Add basic output limiter — S–M / P1**
     - Add a simple safety limiter after plugin processing.
     - Prevent excessive plugin output from reaching the physical device.
