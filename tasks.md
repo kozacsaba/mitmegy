@@ -3,10 +3,6 @@
 Size: **S / M / L / XL**  
 Priority: **P0 / P1 / P2 / P3**
 
-9. **Integrate JUCE — M / P1**
-   - Add the required JUCE modules through CMake.
-   - Use JUCE for plugin hosting and audio-processing abstractions without replacing the custom WASAPI transport.
-
 10. **Host and process through one VST3 plugin — M / P1**
     - Discover/load a VST3 plugin.
     - Configure it with the engine sample rate, block size and channel layout.

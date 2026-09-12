@@ -1,3 +1,6 @@
 [submodule "ext/driver"]
 	path = ext/driver
 	url = git@github.com:kozacsaba/fxsound-driver.git
+[submodule "ext/juce"]
+	path = ext/juce
+	url = git@github.com:juce-framework/JUCE.git

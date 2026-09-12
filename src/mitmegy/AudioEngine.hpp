@@ -41,6 +41,7 @@ public:
 
   const WAVEFORMATEX& inputFormat() const;
   SampleFormat inputSampleFormat() const;
+  size_t maxBlockSize() const;
 
 private:
   void capturePacket();
