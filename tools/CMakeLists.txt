@@ -18,3 +18,4 @@ endfunction()
 
 add_tool(bridge)
 add_tool(scan)
+add_tool(headless-host)
