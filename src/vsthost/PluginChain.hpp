@@ -40,6 +40,8 @@ public:
   std::shared_ptr<Plugin> plugin_id(const PluginID& id);
   std::shared_ptr<const Plugin> plugin_id(const PluginID& id) const;
 
+  std::vector<std::shared_ptr<Plugin>> getChain(){ return *live_; }
+
 private:
   juce::MidiBuffer midi_{};
   double sampleRate_ = 0.0;
