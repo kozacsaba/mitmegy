@@ -24,7 +24,7 @@ PluginChain::Plugin::Plugin(
 )
   : instance_(std::move(instance))
   , runtime_id_(global_id_++)
-  , IdentifierString_(getIdentifierString(instance.get()))
+  , IdentifierString_(getIdentifierString(instance_.get()))
 {
   instance_->prepareToPlay(sampleRate, maxBlockSize);
   bypassed_ = false;
@@ -82,7 +82,7 @@ void PluginChain::add(int index, std::unique_ptr<juce::AudioPluginInstance>&& in
       + ". Only valid negative index is -1 (append to end)");
 
   const size_t size = live_.load()->size();
-  if(index > size)
+  if(index > (int)size)
     throw std::invalid_argument("Cannot insert at invalid index " 
       + std::to_string(index) + ", size is only " + std::to_string(size));
 

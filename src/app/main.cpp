@@ -27,8 +27,8 @@ BOOL WINAPI consoleHandler(DWORD event)
 {
   if (event == CTRL_C_EVENT)
   {
-    // g_running.store(false, std::memory_order_relaxed);
-    std::cout << "type quit" << std::endl;
+    g_running.store(false, std::memory_order_relaxed);
+    // std::cout << "type quit" << std::endl;
     return TRUE;
   }
 

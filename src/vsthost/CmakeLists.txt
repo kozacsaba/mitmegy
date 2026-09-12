@@ -18,4 +18,8 @@ target_link_libraries(vsthost
 target_compile_definitions(vsthost
   PUBLIC
     JUCE_PLUGINHOST_VST3=1
+    JUCE_DISABLE_ASSERTIONS=1
+    JUCE_PLUGINHOST_AU=0
+    JUCE_PLUGINHOST_LADSPA=0
+    JUCE_PLUGINHOST_LV2=0
 )
