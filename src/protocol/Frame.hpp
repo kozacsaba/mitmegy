@@ -7,15 +7,14 @@
 namespace mitmegy
 {
 
-constexpr uint8_t V_MAJ = 0;
-constexpr uint8_t V_MIN = 0;
+constexpr size_t VERSION = 0;
 
 struct Frame
 {
   struct Header
   {
-    const uint8_t major = V_MAJ;
-    const uint8_t minor = V_MIN;
+    size_t version = VERSION;
+    size_t msg_type;
     size_t length;
   } header;
   std::vector<uint8_t> payload;
