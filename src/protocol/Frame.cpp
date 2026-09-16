@@ -38,10 +38,11 @@ std::optional<Frame> Framer::getFrame()
 
   // frame ready
   stage_.payload.clear();
-  stage_.payload.insert(
-    stage_.payload.begin(),
-    buffer_.begin() + HeaderSize,
-    buffer_.begin() + target_bytes_);
+  if(target_bytes_ > HeaderSize)
+    stage_.payload.insert(
+      stage_.payload.begin(),
+      buffer_.begin() + HeaderSize,
+      buffer_.begin() + target_bytes_);
 
   buffer_.erase(buffer_.begin(), buffer_.begin() + target_bytes_);
   target_bytes_ = 0;

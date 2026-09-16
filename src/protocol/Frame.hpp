@@ -16,6 +16,7 @@ struct Frame
     size_t version = VERSION;
     size_t msg_type;
     size_t length;
+    size_t id; // each req and its res should have the same id. client specifies id
   } header;
   std::vector<uint8_t> payload;
 }; // Frame
