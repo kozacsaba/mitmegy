@@ -61,22 +61,23 @@ using audio_device_id = size_t;
 struct plugin_runtime_desc // full description of a plugin that the gui could need 
 {
   plugin_runtime_id id;
-  // ...
-  // impl
+  std::string display_name;
+  bool bypassed;
 };
 
 struct plugin_full_desc
 {
   plugin_static_id id;
-  // ...
-  // impl
+  std::string plugin_name;
+  std::string manufacturer;
+  std::string category;
 };
 
 struct audio_device_desc
 {
   audio_device_id id;
-  // ...
-  // impl
+  std::string type; // not sure about this, just guessing at this point
+  std::string name;
 };
 
 // MARK: Payloads

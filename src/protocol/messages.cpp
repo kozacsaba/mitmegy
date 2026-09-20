@@ -123,6 +123,34 @@ void write(Iter& begin, const Iter& end, type value)
   begin += size;
 }
 
+template<>
+size_t serialized_size<bool>(const bool& value)
+{
+  // bools are encoded as int
+  return sizeof(int);
+}
+
+template<>
+bool read<bool>(ConstIter& begin, const ConstIter& end)
+{
+  checkSize(begin, end, serialized_size(true));
+  const int wire_val = read<int>(begin, end);
+  if(wire_val == WIRE_TRUE)
+    return true;
+  else if (wire_val == WIRE_FALSE)
+    return false;
+  else
+    throw protocol_error("Invalid boolean read");
+}
+
+template<>
+void write<bool>(Iter& begin, const Iter& end, bool value)
+{
+  checkSize(begin, end, serialized_size(value));
+  const int wire_val = value ? WIRE_TRUE : WIRE_FALSE;
+  write<int>(begin, end, wire_val);
+}
+
 template<typename type>
 std::vector<type> readVectorOf(
   ConstIter& begin, const ConstIter& end,
@@ -172,54 +200,89 @@ void writeVectorOf(
 
 // types
 
+template<> size_t serialized_size<plugin_runtime_desc>(const plugin_runtime_desc& val)
+{
+  return serialized_size(val.id) 
+        + serialized_size(val.display_name) 
+        + serialized_size(val.bypassed);
+}
+
 template<>
 void write<plugin_runtime_desc>(Iter& begin, const Iter& end, const plugin_runtime_desc& val)
 {
-  return; 
-}
+  checkSize(begin, end, serialized_size(val));
 
-template<> size_t serialized_size<plugin_runtime_desc>(const plugin_runtime_desc& val)
-{
-
+  write<plugin_runtime_id>(begin, end, val.id);
+  write<std::string>(begin, end, val.display_name);
+  write<bool>(begin, end, val.bypassed);
 }
 
 template<>
 plugin_runtime_desc read(ConstIter& begin, const ConstIter& end)
 {
+  plugin_runtime_desc val;
+  val.id = read<plugin_runtime_id>(begin, end);
+  val.display_name = read<std::string>(begin, end);
+  val.bypassed = read<bool>(begin, end);
+}
 
+template<> size_t serialized_size<plugin_full_desc>(const plugin_full_desc& val)
+{
+  return serialized_size(val.id)
+        + serialized_size(val.plugin_name)
+        + serialized_size(val.manufacturer)
+        + serialized_size(val.category);
 }
 
 template<>
 void write<plugin_full_desc>(Iter& begin, const Iter& end, const plugin_full_desc& val)
 {
+  checkSize(begin, end, serialized_size(val));
 
-}
-
-template<> size_t serialized_size<plugin_full_desc>(const plugin_full_desc& val)
-{
-
+  write(begin, end, val.id);
+  write(begin, end, val.plugin_name);
+  write(begin, end, val.manufacturer);
+  write(begin, end, val.category);
 }
 
 template<>
 plugin_full_desc read<plugin_full_desc>(ConstIter& begin, const ConstIter& end)
 {
+  plugin_full_desc val;
 
+  val.id = read<plugin_static_id>(begin, end);
+  val.plugin_name = read<std::string>(begin, end);
+  val.manufacturer = read<std::string>(begin, end);
+  val.category = read<std::string>(begin, end);
+  return val;
+}
+
+template<> size_t serialized_size<audio_device_desc>(const audio_device_desc& val)
+{
+  return serialized_size(val.id)
+        + serialized_size(val.type)
+        + serialized_size(val.name);
 }
 
 template<>
 void write<audio_device_desc>(Iter& begin, const Iter& end, const audio_device_desc& val)
 {
+  checkSize(begin, end, serialized_size(val));
 
+  write(begin, end, val.id);
+  write(begin, end, val.type);
+  write(begin, end, val.name);
 }
 
-template<> size_t serialized_size<audio_device_desc>(const audio_device_desc& val)
+template<>
+audio_device_desc read<audio_device_desc>(ConstIter& begin, const ConstIter& end)
 {
+  audio_device_desc val;
 
-}
-
-template<> audio_device_desc read<audio_device_desc>(ConstIter& begin, const ConstIter& end)
-{
-  
+  val.id = read<audio_device_id>(begin, end);
+  val.type = read<std::string>(begin, end);
+  val.name = read<std::string>(begin, end);
+  return val;
 }
 
 } // namespace
@@ -359,11 +422,10 @@ template<> AddPlugin from_bytes(const std::vector<uint8_t>& bytes)
 template<> std::vector<uint8_t> to_bytes<BypassPlugin>(const BypassPlugin& message)
 {
   std::vector<uint8_t> bytes(sizeof(plugin_runtime_id) + sizeof(int));
-  const int bypassed = message.bypass ? WIRE_TRUE : WIRE_FALSE;
 
   Iter begin = bytes.begin();
-  write<plugin_runtime_id>(begin, bytes.end(), message.bypass);
-  write<int>(begin, bytes.end(), bypassed);
+  write<plugin_runtime_id>(begin, bytes.end(), message.id);
+  write<int>(begin, bytes.end(), message.bypass);
   return bytes;
 }
 
@@ -372,13 +434,7 @@ template<> BypassPlugin from_bytes(const std::vector<uint8_t>& bytes)
   BypassPlugin message;
   ConstIter begin = bytes.begin();
   message.id = read<plugin_runtime_id>(begin, bytes.end());
-  const int bypass = read<int>(begin, bytes.end());
-  if(bypass == WIRE_TRUE)
-    message.bypass = true;
-  else if (bypass == WIRE_FALSE)
-    message.bypass = false;
-  else
-    throw protocol_error("Invalid boolean in BypassPlugin from_bytes");
+  message.bypass = read<bool>(begin, bytes.end());
 
   return message;
 }
