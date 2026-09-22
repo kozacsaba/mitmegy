@@ -34,7 +34,7 @@ public:
 private:
   std::vector<uint8_t> buffer_;
   Frame stage_;
-  size_t target_bytes_;
+  size_t target_bytes_ = 0;
 
 }; // Framer
 

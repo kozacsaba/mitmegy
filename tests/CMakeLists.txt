@@ -24,3 +24,4 @@ endfunction()
 
 add_unit_test(AudioFifoTest libmitmegy)
 add_unit_test(ProtocolMessageTest protocol)
+add_unit_test(NamedPipeTest protocol)

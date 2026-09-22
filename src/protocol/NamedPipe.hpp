@@ -55,8 +55,7 @@ private:
   mutable std::mutex stateMutex_;
   std::mutex readMutex_;
   std::mutex writeMutex_;
-};
-
+}; // NamedPipeConnection
 
 class NamedPipeServer
 {
@@ -80,8 +79,7 @@ private:
   std::mutex stateMutex_;
   void* pendingHandle_ = nullptr;
   bool cancelled_ = false;
-};
-
+}; // NamedPipeServer
 
 class NamedPipeClient
 {
@@ -89,6 +87,6 @@ public:
   // Performs one connection attempt.
   // nullopt means no server instance is currently available.
   static std::optional<NamedPipeConnection> connect(std::wstring_view name);
-};
+}; // NamedPipeClient
 
 } // namespace mitmegy
