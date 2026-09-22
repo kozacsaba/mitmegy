@@ -114,9 +114,9 @@ size_t serialized_size(const type&)
 
 template<typename type>
 requires Fundamental<type>
-void write(Iter& begin, const Iter& end, type value)
+void write(Iter& begin, const Iter& end, const type& value)
 {
-  constexpr size_t size = serialized_size<type>(value);
+  const size_t size = serialized_size<type>(value);
   checkSize(begin, end, size);
 
   std::memcpy(&*begin, &value, size);
@@ -144,7 +144,7 @@ bool read<bool>(ConstIter& begin, const ConstIter& end)
 }
 
 template<>
-void write<bool>(Iter& begin, const Iter& end, bool value)
+void write<bool>(Iter& begin, const Iter& end, const bool& value)
 {
   checkSize(begin, end, serialized_size(value));
   const int wire_val = value ? WIRE_TRUE : WIRE_FALSE;
@@ -159,12 +159,11 @@ std::vector<type> readVectorOf(
     { return read<type>(begin, end); }
 )
 {
-  ConstIter begin = bytes.begin();
-  const size_t num_elements = read<size_t>(begin, bytes.end());
+  const size_t num_elements = read<size_t>(begin, end);
   std::vector<type> vec(num_elements);
 
   for(int i = 0; i < num_elements; i++)
-    vec[i] = deserializer(begin, bytes.end());
+    vec[i] = deserializer(begin, end);
 
   return vec;
 }
@@ -174,7 +173,7 @@ size_t serialized_vector_size(const std::vector<type>& vec)
 {
   size_t size = sizeof(size_t); // num_elements
   for(const auto& elem : vec)
-    size += size_getter(elem);
+    size += serialized_size<type>(elem);
 
   return size;
 }
@@ -192,7 +191,6 @@ void writeVectorOf(
   size_t size = serialized_vector_size<type>(vec);
   checkSize(begin, end, size);
 
-  Iter begin = bytes.begin();
   write<size_t>(begin, end, vec.size());
   for(const auto& elem : vec)
     write<type>(begin, end, elem);
@@ -224,6 +222,7 @@ plugin_runtime_desc read(ConstIter& begin, const ConstIter& end)
   val.id = read<plugin_runtime_id>(begin, end);
   val.display_name = read<std::string>(begin, end);
   val.bypassed = read<bool>(begin, end);
+  return val;
 }
 
 template<> size_t serialized_size<plugin_full_desc>(const plugin_full_desc& val)
@@ -303,7 +302,8 @@ template<> Noop from_bytes(const std::vector<uint8_t>& bytes)
 template<> std::vector<uint8_t> to_bytes<Path>(const Path& message)
 {
   std::vector<uint8_t> bytes(serialized_size<std::string>(message.path));
-  write<std::string>(bytes.begin(), bytes.end(), message.path);
+  auto front = bytes.begin(); auto end ( bytes.end());
+  write<std::string>(front, end, message.path);
   return bytes;
 }
 
@@ -318,7 +318,8 @@ template<> Path from_bytes(const std::vector<uint8_t>& bytes)
 template<> std::vector<uint8_t> to_bytes<Error>(const Error& message)
 {
   std::vector<uint8_t> bytes(serialized_size<std::string>(message.message));
-  write<std::string>(bytes.begin(), bytes.end(), message.message);
+  auto front = bytes.begin(); auto end ( bytes.end());
+  write<std::string>(front, end, message.message);
   return bytes;
 }
 
@@ -334,69 +335,80 @@ template<> std::vector<uint8_t> to_bytes<Query>(const Query& message)
 {
   using Base = std::underlying_type_t<query_subject>;
   std::vector<uint8_t> bytes(sizeof(Base));
-  write<Base>(bytes.begin(), bytes.end(), (Base)message.subject);
+  auto front = bytes.begin(); auto end ( bytes.end());
+  write<Base>(front, end, (Base)message.subject);
+  return bytes;
 }
 
 template<> Query from_bytes(const std::vector<uint8_t>& bytes)
 {
   using Base = std::underlying_type_t<query_subject>;
-  Base raw_value = read<Base>(bytes.begin(), bytes.end());
+  ConstIter front = bytes.begin();
+  Base raw_value = read<Base>(front, bytes.end());
   return {(query_subject)(raw_value)};
 }
 
 template<> std::vector<uint8_t> to_bytes<ListPlugins>(const ListPlugins& message)
 {
-  std::vector<uint8_t> bytes(serialized_size(message));
-  writeVectorOf<plugin_full_desc>(bytes.begin(), bytes.end(), message.plugins);
+  std::vector<uint8_t> bytes(serialized_vector_size(message.plugins));
+  auto front = bytes.begin(); auto end ( bytes.end());
+  writeVectorOf<plugin_full_desc>(front, end, message.plugins);
   return bytes;
 }
 
 template<> ListPlugins from_bytes(const std::vector<uint8_t>& bytes)
 {
   ListPlugins list;
-  list.plugins = readVectorOf<plugin_full_desc>(bytes.begin(), bytes.end());
+  ConstIter front = bytes.begin();
+  list.plugins = readVectorOf<plugin_full_desc>(front, bytes.end());
   return list;
 }
 
 template<> std::vector<uint8_t> to_bytes<ListChain>(const ListChain& message)
 {
-  std::vector<uint8_t> bytes(serialized_size(message));
-  writeVectorOf<plugin_runtime_desc>(bytes.begin(), bytes.end(), message.plugins);
+  std::vector<uint8_t> bytes(serialized_vector_size(message.plugins));
+  auto front = bytes.begin(); auto end ( bytes.end());
+  writeVectorOf<plugin_runtime_desc>(front, end, message.plugins);
   return bytes;
 }
 
 template<> ListChain from_bytes(const std::vector<uint8_t>& bytes)
 {
   ListChain list;
-  list.plugins = readVectorOf<plugin_runtime_desc>(bytes.begin(), bytes.end());
+  ConstIter front = bytes.begin();
+  list.plugins = readVectorOf<plugin_runtime_desc>(front, bytes.end());
   return list;
 }
 
 template<> std::vector<uint8_t> to_bytes<ListDevices>(const ListDevices& message)
 {
-  std::vector<uint8_t> bytes(serialized_size(message));
-  writeVectorOf<audio_device_desc>(bytes.begin(), bytes.end(), message.devices);
+  std::vector<uint8_t> bytes(serialized_vector_size(message.devices));
+  auto front = bytes.begin(); auto end ( bytes.end());
+  writeVectorOf<audio_device_desc>(front, end, message.devices);
   return bytes;
 }
 
 template<> ListDevices from_bytes(const std::vector<uint8_t>& bytes)
 {
   ListDevices list;
-  list.devices = readVectorOf<audio_device_desc>(bytes.begin(), bytes.end());
+  ConstIter front = bytes.begin();
+  list.devices = readVectorOf<audio_device_desc>(front, bytes.end());
   return list;
 }
 
 template<> std::vector<uint8_t> to_bytes<ListPaths>(const ListPaths& message)
 {
-  std::vector<uint8_t> bytes(serialized_size(message));
-  writeVectorOf<std::string>(bytes.begin(), bytes.end(), message.paths);
+  std::vector<uint8_t> bytes(serialized_vector_size(message.paths));
+  auto front = bytes.begin(); auto end ( bytes.end());
+  writeVectorOf<std::string>(front, end, message.paths);
   return bytes;
 }
 
 template<> ListPaths from_bytes(const std::vector<uint8_t>& bytes)
 {
   ListPaths list;
-  list.paths = readVectorOf<std::string>(bytes.begin(), bytes.end());
+  ConstIter front = bytes.begin();
+  list.paths = readVectorOf<std::string>(front, bytes.end());
   return list;
 }
 
@@ -404,9 +416,9 @@ template<> std::vector<uint8_t> to_bytes<AddPlugin>(const AddPlugin& message)
 {
   std::vector<uint8_t> bytes(sizeof(plugin_static_id) + sizeof(int));
 
-  Iter begin = bytes.begin();
-  write<plugin_static_id>(begin, bytes.end(), message.id);
-  write<int>(begin, bytes.end(), message.index);
+  auto front = bytes.begin(); auto end ( bytes.end());
+  write<plugin_static_id>(front, end, message.id);
+  write<int>(front, end, message.index);
   return bytes;
 }
 
@@ -423,9 +435,9 @@ template<> std::vector<uint8_t> to_bytes<BypassPlugin>(const BypassPlugin& messa
 {
   std::vector<uint8_t> bytes(sizeof(plugin_runtime_id) + sizeof(int));
 
-  Iter begin = bytes.begin();
-  write<plugin_runtime_id>(begin, bytes.end(), message.id);
-  write<int>(begin, bytes.end(), message.bypass);
+  auto front = bytes.begin(); auto end ( bytes.end());
+  write<plugin_runtime_id>(front, end, message.id);
+  write<int>(front, end, message.bypass);
   return bytes;
 }
 
@@ -443,9 +455,9 @@ template<> std::vector<uint8_t> to_bytes<MovePlugin>(const MovePlugin& message)
 {
   std::vector<uint8_t> bytes(sizeof(plugin_runtime_id) + sizeof(int));
 
-  Iter begin = bytes.begin();
-  write<plugin_runtime_id>(begin, bytes.end(), message.id);
-  write<int>(begin, bytes.end(), message.index);
+  auto front = bytes.begin(); auto end ( bytes.end());
+  write<plugin_runtime_id>(front, end, message.id);
+  write<int>(front, end, message.index);
   return bytes;
 }
 
@@ -462,14 +474,17 @@ template<> std::vector<uint8_t> to_bytes<SimpleId>(const SimpleId& message)
 {
   std::vector<uint8_t> bytes(sizeof(size_t));
 
-  Iter begin = bytes.begin();
-  write<size_t>(begin, bytes.end(), message.id);
+  auto front = bytes.begin(); auto end ( bytes.end());
+  write<size_t>(front, end, message.id);
   return bytes;
 }
 
 template<> SimpleId from_bytes(const std::vector<uint8_t>& bytes)
 {
-  return { read<size_t>(bytes.begin(), bytes.end()) };
+  SimpleId message;
+  ConstIter front = bytes.begin();
+  message.id = read<size_t>(front, bytes.end());
+  return message;
 }
 
 } // namespace mitmegy::msg
