@@ -19,11 +19,10 @@ void TransportStats::observeFifo(const AudioFifo& fifo)
   fifo_max_fill = std::max(fifo_max_fill, fill);
 }
 
-AudioEngine::AudioEngine(const Endpoint& audio_sink, const Endpoint& output, ProcessCallback process)
+AudioEngine::AudioEngine(const Endpoint& audio_sink, const Endpoint& output)
   : capture_(audio_sink)
   , fifo_(capture_.channels(), capture_.sampleRate())
   , render_(output, capture_.format())
-  , process_(std::move(process))
 {
   if (capture_.sampleFormat() != SampleFormat::Float32)
     throw std::runtime_error("Current engine only supports 32-bit float AudioSink input");

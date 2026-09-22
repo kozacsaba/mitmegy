@@ -56,7 +56,7 @@ enum class query_subject : size_t
 // ids do not need to persist between launches because they do not get saved
 using plugin_static_id = size_t;
 using plugin_runtime_id = size_t;
-using audio_device_id = size_t;
+using audio_device_id = size_t; // TODO: change this to string
 
 struct plugin_runtime_desc // full description of a plugin that the gui could need 
 {

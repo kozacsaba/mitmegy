@@ -34,7 +34,7 @@ using ProcessCallback = std::function<void(AudioFifo::ReadView&, size_t)>;
 class AudioEngine
 {
 public:
-  AudioEngine(const Endpoint& audio_sink, const Endpoint& output, ProcessCallback process);
+  AudioEngine(const Endpoint& audio_sink, const Endpoint& output);
 
   void run(const std::atomic_bool& running);
   const TransportStats& stats() const;
@@ -42,6 +42,8 @@ public:
   const WAVEFORMATEX& inputFormat() const;
   SampleFormat inputSampleFormat() const;
   size_t maxBlockSize() const;
+
+  ProcessCallback process_;
 
 private:
   void capturePacket();
@@ -54,7 +56,6 @@ private:
   AudioFifo fifo_;
   WasapiRender render_;
 
-  ProcessCallback process_;
   TransportStats stats_;
 };
 

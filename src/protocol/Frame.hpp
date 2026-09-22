@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <vector>
 #include <optional>
+#include <span>
 
 namespace mitmegy
 {
@@ -26,7 +27,7 @@ std::vector<uint8_t> serialiseFrame(const Frame& frame);
 class Framer
 {
 public:
-  void pushBytes(const std::vector<uint8_t>& bytes);
+  void pushBytes(const std::span<uint8_t>& bytes);
 
   // Not thread safe. Should be called form the same thread as pushBytes
   std::optional<Frame> getFrame();
