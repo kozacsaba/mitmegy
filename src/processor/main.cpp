@@ -1,7 +1,8 @@
+#include "Engine.hpp"
+#include "MessageHandler.hpp"
+
 #include "vsthost/PluginChain.hpp"
 #include "vsthost/PluginRegistry.hpp"
-
-#include "Engine.hpp"
 
 #include <windows.h>
 
@@ -102,7 +103,10 @@ int wmain(int argc, wchar_t* argv[])
 
     mitmegy::Engine engine{};
 
+    mitmegy::PluginRegistry registry;
+
     mitmegy::PluginChain plugin_chain;
+    // restore last session / snapshot
     auto process = [&](mitmegy::AudioFifo::ReadView& view, size_t frames)
     {
       std::array<float*, 8> channels{};
@@ -123,105 +127,20 @@ int wmain(int argc, wchar_t* argv[])
     const auto format = engine.getInputFormat();
     plugin_chain.configure(format.nSamplesPerSec, engine.maxBlockSize());
 
+    mitmegy::MessageHandler handler(engine, plugin_chain, registry);
+
+    // start engine
+    // Engine doesnt even have a start function
+
+    // start handler
 
 
-
-
-    
-    // MARK: Prepare Plugin registry
-
-    mitmegy::PluginRegistry registry;
-    std::cout << "Scanning plugins" << std::endl;
-    registry.scan();
-    std::cout << std::endl;
-    auto plugins = registry.plugins().getTypes();
-
-    // MARK: Launch Processor
-
-
-
-    std::thread t_engine([&]()
-    {
-      std::wcout << L"Started Plugin Host. Enter \"help\" for available"
-                    L"commands, press Ctrl+C to stop.\n";
-      engine.run(g_running);
-      printStats(engine.stats());
-    });
 
     // MARK: VST SELECT
 
-    std::thread t_io([&]()
-    {
-      using Type = IOCommandType;
-      std::string line;
-
-      while(g_running.load())
-      {
-        std::getline(std::cin, line);
-        IOCommandTask task = getIOCommand(line);
-
-        try
-        {
-          switch(task.type)
-          {
-            case Type::help:
-              printHelp();
-              break;
-            case Type::list:
-              printPluginList(plugins, task.msg);
-              break;
-            case Type::chain:
-            {
-              for(auto plugin : plugin_chain.getChain())
-              {
-                std::cout << "[" << plugin->runtime_id_ << "]";
-                if(plugin->bypassed_)
-                  std::cout << " [bypassed] ";
-                std::cout << " - " << plugin->instance_->getName();
-                std::cout << std::endl;
-              }
-              break;
-            }
-            case Type::remove:
-              plugin_chain.remove(task.index);
-              break;
-            case Type::add:
-            {
-              auto& desc = findPluginDescriptor(plugins, task.msg);
-              if (task.index < -1 || task.index >= plugins.size())
-                throw std::runtime_error("Invalid plugin index");
-              auto plugin = registry.createInstance(desc);
-              plugin_chain.add(task.index, std::move(plugin));
-              std::cout << "Inserted plugin " << desc.name << " at index" << task.index << std::endl;
-              break;
-            }
-            case Type::bypass:
-              plugin_chain.plugin_id(task.index)->bypassed_ = true;
-              break;
-            case Type::stop:
-              std::cout << "\nStopping" << std::endl;
-              g_running = false;
-              g_running.notify_all();
-              break;
-            case Type::error:
-              std::cout << "Invalid input: " << task.msg << std::endl;
-              break;
-          }
-        }
-        catch(const std::exception& e)
-        {
-          std::cout << "Error: " << e.what() << std::endl;
-        }
-      }
-    });
 
     g_running.wait(true);
 
-    if(t_io.joinable())
-      t_io.join();
-
-    if(t_engine.joinable())
-      t_engine.join();
 
     return 0;
   }

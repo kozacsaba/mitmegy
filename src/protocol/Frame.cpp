@@ -5,7 +5,7 @@ namespace mitmegy
 
 constexpr size_t HeaderSize = sizeof(Frame::Header);
 
-std::vector<uint8_t> serialiseFrame(const Frame& frame)
+std::vector<uint8_t> serializeFrame(const Frame& frame)
 {
   std::vector<uint8_t> byte_vector;
   byte_vector.resize(HeaderSize + frame.payload.size());

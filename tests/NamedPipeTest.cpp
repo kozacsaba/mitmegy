@@ -378,7 +378,7 @@ void test_large_transfer()
 void test_frame_roundtrip()
 {
   const Frame original = makeFrame(42, 1234, 1024);
-  const auto bytes = serialiseFrame(original);
+  const auto bytes = serializeFrame(original);
   
   Framer framer{};
   framer.pushBytes(bytes);
@@ -392,7 +392,7 @@ void test_frame_roundtrip()
 void test_fragmented_frame()
 {
   const Frame original = makeFrame(7, 999, 4096);
-  const auto bytes = serialiseFrame(original);
+  const auto bytes = serializeFrame(original);
 
   Framer framer{};
   for (uint8_t byte : bytes)
@@ -410,8 +410,8 @@ void test_multiple_frames()
   const Frame first = makeFrame(10, 100, 123);
   const Frame second = makeFrame(20, 200, 456);
 
-  auto stream = serialiseFrame(first);
-  const auto secondBytes = serialiseFrame(second);
+  auto stream = serializeFrame(first);
+  const auto secondBytes = serializeFrame(second);
   stream.insert(stream.end(), secondBytes.begin(), secondBytes.end());
 
   Framer framer{};
@@ -437,7 +437,7 @@ void test_frame_over_pipe()
   auto pair = connectPair(name);
 
   const Frame original = makeFrame(123, 456, 8192);
-  const auto bytes = serialiseFrame(original);
+  const auto bytes = serializeFrame(original);
 
   bool writeResult = false;
   std::exception_ptr writerError;
@@ -483,7 +483,7 @@ void test_large_frame_over_pipe()
   const auto name = uniquePipeName(L"large-frame");
   auto pair = connectPair(name);
   const Frame original = makeFrame(321, 654, PAYLOAD_SIZE);
-  const auto bytes = serialiseFrame(original);
+  const auto bytes = serializeFrame(original);
 
   bool writeResult = false;
   std::exception_ptr writerError;
@@ -530,15 +530,15 @@ void test_multiple_frames_over_pipe()
   const Frame first = makeFrame(1, 101, 5000);
   const Frame second = makeFrame(2, 102, 7000);
   const Frame third = makeFrame(3, 103, 3000);
-  auto stream = serialiseFrame(first);
+  auto stream = serializeFrame(first);
 
   {
-    const auto bytes = serialiseFrame(second);
+    const auto bytes = serializeFrame(second);
     stream.insert(stream.end(), bytes.begin(), bytes.end());
   }
 
   {
-    const auto bytes = serialiseFrame(third);
+    const auto bytes = serializeFrame(third);
     stream.insert(stream.end(), bytes.begin(), bytes.end());
   }
 

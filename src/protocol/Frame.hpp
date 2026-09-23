@@ -22,7 +22,7 @@ struct Frame
   std::vector<uint8_t> payload;
 }; // Frame
 
-std::vector<uint8_t> serialiseFrame(const Frame& frame);
+std::vector<uint8_t> serializeFrame(const Frame& frame);
 
 class Framer
 {

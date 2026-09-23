@@ -12,11 +12,12 @@ namespace mitmegy
 
 class Engine;
 class PluginChain;
+class PluginRegistry;
 
 class MessageHandler
 {
 public:
-  MessageHandler(Engine& engine_, PluginChain& chain_);
+  MessageHandler(Engine& engine, PluginChain& chain, PluginRegistry& registry);
   ~MessageHandler();
 
   void start();
@@ -41,11 +42,15 @@ private:
   void handle_load_snapshot (size_t id, const std::vector<uint8_t>& pl);
 
   void sendError(size_t id, const std::string& msg);
+  void sendSuccess(size_t id);
+  void sendMessage(std::vector<uint8_t>&& payload, size_t type, size_t id);
 
   Engine& engine_;
   PluginChain& chain_;
+  PluginRegistry& registry_;
 
   NamedPipeServer server_;
+  std::mutex connection_mut_;
   std::optional<NamedPipeConnection> connection_;
   Framer framer_;
 

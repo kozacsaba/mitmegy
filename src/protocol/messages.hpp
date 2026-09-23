@@ -28,7 +28,8 @@ enum class Type : size_t
   req_move_plugin, // in chain sequence
 
   req_open_gui, // open editor for plugin
-  req_rescan, // rescan plugiin database
+  req_rescan, // rescan plugin database
+  // TODO: res_failed_plugins, // plugin scan responds with list of failed plugins
 
   req_add_path, // add plugin scan path
   req_remove_path, // remove plugin scan path
@@ -56,7 +57,6 @@ enum class query_subject : size_t
 // ids do not need to persist between launches because they do not get saved
 using plugin_static_id = size_t;
 using plugin_runtime_id = size_t;
-using audio_device_id = size_t; // TODO: change this to string
 
 struct plugin_runtime_desc // full description of a plugin that the gui could need 
 {
@@ -75,8 +75,7 @@ struct plugin_full_desc
 
 struct audio_device_desc
 {
-  audio_device_id id;
-  std::string type; // not sure about this, just guessing at this point
+  std::string id;
   std::string name;
 };
 
@@ -150,9 +149,13 @@ struct SimpleId
   size_t id;
 };
 
+struct SelectDevice
+{
+  std::string id;
+};
+
 using RemovePlugin = SimpleId;
 using OpenGui = SimpleId;
-using SelectDevice = SimpleId;
 
 // MARK: Serialisation
 

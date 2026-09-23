@@ -259,7 +259,6 @@ plugin_full_desc read<plugin_full_desc>(ConstIter& begin, const ConstIter& end)
 template<> size_t serialized_size<audio_device_desc>(const audio_device_desc& val)
 {
   return serialized_size(val.id)
-        + serialized_size(val.type)
         + serialized_size(val.name);
 }
 
@@ -269,7 +268,6 @@ void write<audio_device_desc>(Iter& begin, const Iter& end, const audio_device_d
   checkSize(begin, end, serialized_size(val));
 
   write(begin, end, val.id);
-  write(begin, end, val.type);
   write(begin, end, val.name);
 }
 
@@ -278,8 +276,7 @@ audio_device_desc read<audio_device_desc>(ConstIter& begin, const ConstIter& end
 {
   audio_device_desc val;
 
-  val.id = read<audio_device_id>(begin, end);
-  val.type = read<std::string>(begin, end);
+  val.id = read<std::string>(begin, end);
   val.name = read<std::string>(begin, end);
   return val;
 }
@@ -467,6 +464,23 @@ template<> MovePlugin from_bytes(const std::vector<uint8_t>& bytes)
   ConstIter front = bytes.begin();
   message.id = read<plugin_runtime_id>(front, bytes.end());
   message.index = read<int>(front, bytes.end());
+  return message;
+}
+
+template<> std::vector<uint8_t> to_bytes<SelectDevice>(const SelectDevice& message)
+{
+  std::vector<uint8_t> bytes(sizeof(size_t));
+
+  auto front = bytes.begin(); auto end ( bytes.end());
+  write<std::string>(front, end, message.id);
+  return bytes;
+}
+
+template<> SelectDevice from_bytes(const std::vector<uint8_t>& bytes)
+{
+  SelectDevice message;
+  ConstIter front = bytes.begin();
+  message.id = read<std::string>(front, bytes.end());
   return message;
 }
 

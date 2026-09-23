@@ -11,10 +11,8 @@ namespace mitmegy
 
 class PluginChain
 {
-private:
-  struct Plugin;
-
 public:
+  struct Plugin;
   using PluginID = size_t;
 
   PluginChain();
