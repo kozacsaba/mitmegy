@@ -19,6 +19,7 @@
 #include <type_traits>
 
 static_assert(std::is_same_v<mitmegy::msg::plugin_runtime_id, mitmegy::PluginChain::PluginID>);
+static_assert(std::is_same_v<mitmegy::msg::plugin_static_id, size_t>);
 
 namespace
 {
@@ -132,6 +133,8 @@ void MessageHandler::worker()
 
 void MessageHandler::processFrame(const Frame& frame)
 {
+  size_t id = (size_t)(-1);
+
   try
   {
     if(frame.header.version != VERSION)
@@ -140,7 +143,7 @@ void MessageHandler::processFrame(const Frame& frame)
         + " vs " + std::to_string(VERSION));
 
     const auto type = (msg::Type)(frame.header.msg_type);
-    const size_t id = frame.header.id;
+    id = frame.header.id;
 
     switch(type)
     {
@@ -178,6 +181,7 @@ void MessageHandler::processFrame(const Frame& frame)
   catch(const std::exception& e)
   {
     log("Error in processing a frame: " + std::string(e.what()));
+    sendError(id, e.what());
   }
 }
 
@@ -209,7 +213,7 @@ void MessageHandler::handle_query(size_t id, const std::vector<uint8_t>& pl)
       {
         plugin_runtime_desc desc;
         desc.id = plugin->runtime_id_;
-        desc.display_name = plugin->IdentifierString_.toStdString(); // TODO: probably not what we want here
+        desc.display_name = plugin->display_name_;
         desc.bypassed = plugin->bypassed_;
         response.plugins.push_back(std::move(desc));
       }
@@ -238,7 +242,20 @@ void MessageHandler::handle_query(size_t id, const std::vector<uint8_t>& pl)
     }
     case query_subject::plugin_list:
     {
-      // TODO: plugin list
+      ListPlugins response {};
+      response.plugins.reserve(scannedPlugins_.size());
+      for(const auto& [static_id, desc] : scannedPlugins_)
+      {
+        plugin_full_desc full_desc;
+        full_desc.id = static_id;
+        full_desc.plugin_name = desc.name.toStdString();
+        full_desc.category = desc.category.toStdString();
+        full_desc.manufacturer = desc.manufacturerName.toStdString();
+        response.plugins.push_back(std::move(full_desc));
+      }
+
+      auto payload = to_bytes(response);
+      sendMessage(std::move(payload), (size_t)Type::res_query_plugins, id);
       break;
     }
     case query_subject::search_paths:
@@ -285,7 +302,11 @@ void MessageHandler::handle_remove_plugin(size_t id, const std::vector<uint8_t>&
 
 void MessageHandler::handle_move_plugin(size_t id, const std::vector<uint8_t>& pl)
 {
-  // TODO: needs a move method in PluginChain
+  using namespace msg;
+  const MovePlugin request = from_bytes<MovePlugin>(pl);
+
+  chain_.move(request.id, request.index);
+  sendSuccess(id);
 }
 
 void MessageHandler::handle_open_gui(size_t id, const std::vector<uint8_t>& pl)
@@ -293,9 +314,25 @@ void MessageHandler::handle_open_gui(size_t id, const std::vector<uint8_t>& pl)
   // TODO: a lot...
 }
 
-void MessageHandler::handle_rescan        (size_t id, const std::vector<uint8_t>& pl)
+void MessageHandler::handle_rescan(size_t id, const std::vector<uint8_t>& pl)
 {
+  scannedPlugins_.clear();
+  const auto& failures = registry_.scan();
 
+  // TODO: Do this by calling the public method instead
+  const auto& scanned = registry_.plugins().getTypes();
+  const size_t num_plugins = scanned.size();
+  scannedPlugins_.reserve(num_plugins);
+  for(size_t i = 0; i < num_plugins; i++)
+    scannedPlugins_.emplace(global_plugin_id_++, scanned[i]);
+
+  // TODO: respond with list of failed scans
+  // using namespace msg;
+  // FailedScans response;
+  // for(const auto& err_message : failures)
+  //   response.message.push_back(err_message.toStdString());
+
+  sendSuccess(id);
 }
 
 void MessageHandler::handle_add_path      (size_t id, const std::vector<uint8_t>& pl)

@@ -27,4 +27,4 @@ private:
   juce::VST3PluginFormat* vst3_format_ = nullptr;
 };
 
-}
+} // namespace mitmegy

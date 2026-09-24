@@ -33,66 +33,6 @@ BOOL WINAPI consoleHandler(DWORD event)
   return FALSE;
 }
 
-bool containsInsensitive(std::string_view text, std::string_view substring)
-{
-  if (substring.empty())
-    return true;
-
-  return std::search(
-    text.begin(), text.end(),
-    substring.begin(), substring.end(),
-    [](wchar_t lhs, wchar_t rhs)
-    {
-      return std::towlower(lhs) == std::towlower(rhs);
-    }) != text.end();
-}
-
-std::string getNextWord(std::string& src)
-{
-  const auto pos = src.find(' ');
-  const std::string word = src.substr(0, pos);
-  src = src.substr(pos+1);
-  return word;
-}
-
-void printPluginList(
-  const juce::Array<juce::PluginDescription>& plugins,
-  const std::string& filter = "")
-{
-  const bool do_filter = !filter.empty();
-
-  for (int i = 0; i < plugins.size(); ++i)
-  {
-    const auto& plugin = plugins.getReference(i);
-    if(do_filter && !containsInsensitive(plugin.name.toStdString(), filter))
-      continue;
-
-    std::cout
-      << "[" << i << "] "
-      << plugin.name
-      << " - "
-      << plugin.manufacturerName
-      << '\n';
-  }
-}
-
-juce::PluginDescription& findPluginDescriptor(
-  juce::Array<juce::PluginDescription>& plugins,
-  const std::string& keyword)
-{
-  auto it = std::find_if(
-    plugins.begin(), plugins.end(), 
-    [&](const juce::PluginDescription& elem)
-    {
-      return containsInsensitive(elem.name.toStdString(), keyword);
-    });
-
-  if(it == plugins.end())
-    throw std::runtime_error("No plugins found matching the keyword " + keyword);
-
-  return *it;
-}
-
 } // namespace
 
 int wmain(int argc, wchar_t* argv[])

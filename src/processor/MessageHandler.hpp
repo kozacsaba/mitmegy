@@ -6,6 +6,7 @@
 #include <optional>
 #include <thread>
 #include <atomic>
+#include <unordered_map>
 
 namespace mitmegy
 {
@@ -22,6 +23,15 @@ public:
 
   void start();
   void stop();
+
+  // TODO:
+  // init --------------------
+  // scanPlugins()
+  // io ----------------------
+  // saveScannedPlugins()
+  // loadScannedPlugins()
+  // savePluginPaths()
+  // loadPluginPaths()
 
 private:
   void processFrame(const Frame& frame);
@@ -48,6 +58,8 @@ private:
   Engine& engine_;
   PluginChain& chain_;
   PluginRegistry& registry_;
+  std::unordered_map<size_t, juce::PluginDescription> scannedPlugins_;
+  size_t global_plugin_id_ = 0;
 
   NamedPipeServer server_;
   std::mutex connection_mut_;
