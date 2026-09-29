@@ -2,6 +2,7 @@
 
 #include "protocol/NamedPipe.hpp"
 #include "protocol/Frame.hpp"
+#include "vsthost/PluginRegistry.hpp"
 
 #include <optional>
 #include <thread>
@@ -13,7 +14,6 @@ namespace mitmegy
 
 class Engine;
 class PluginChain;
-class PluginRegistry;
 
 class MessageHandler
 {

@@ -115,7 +115,7 @@ bool Engine::selectDevice(const std::wstring& endpoint_id)
     return false;
 
   engine_ = nullptr;
-  engine_ = std::make_unique<mitmegy::AudioEngine>(*audio_sink_, it);
+  engine_ = std::make_unique<mitmegy::AudioEngine>(*audio_sink_, *it);
   engine_->process_ = callback_;
 
   // TMP
@@ -127,6 +127,8 @@ bool Engine::selectDevice(const std::wstring& endpoint_id)
     + L"    " + audio_sink_->name + L"\n"
     + L"        -> " + it->name + L"\n"
   );
+
+  return true;
 }
 
 const WAVEFORMATEX& Engine::getInputFormat() const

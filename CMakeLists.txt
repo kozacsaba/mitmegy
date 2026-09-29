@@ -8,6 +8,8 @@ set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+add_compile_options(/FS)
+
 set(MITMEGY_AUDIO_SINK_NAME "AudioSink" CACHE STRING
   "Substring identifying the virtual audio sink endpoint")
 

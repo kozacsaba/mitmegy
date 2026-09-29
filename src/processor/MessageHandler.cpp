@@ -13,7 +13,7 @@
   #define NOMINMAX
 #endif
 
-#include <window.h>
+#include <windows.h>
 
 #include <algorithm>
 #include <type_traits>
@@ -77,7 +77,7 @@ void MessageHandler::start()
   if(running_.exchange(true))
     return;
 
-  thread_ = std::thread(worker, this);
+  thread_ = std::thread(&MessageHandler::worker, this);
 }
 
 void MessageHandler::stop()
