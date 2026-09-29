@@ -384,7 +384,8 @@ int wmain(int argc, wchar_t* argv[])
 
     // MARK: Launch Processor
 
-    mitmegy::AudioEngine engine(*audio_sink, *output, process);
+    mitmegy::AudioEngine engine(*audio_sink, *output);
+    engine.process_ = std::move(process);
     const auto& format = engine.inputFormat();
     plugin_chain.configure(format.nSamplesPerSec, engine.maxBlockSize());
     printFormat(format);

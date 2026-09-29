@@ -11,10 +11,8 @@ namespace mitmegy
 
 class PluginChain
 {
-private:
-  struct Plugin;
-
 public:
+  struct Plugin;
   using PluginID = size_t;
 
   PluginChain();
@@ -29,10 +27,10 @@ public:
   void configure(double sampleRate, int maxBlockSize);
   void processBlock(juce::AudioBuffer<float>& buffer);
 
-  // processBlock does the actualy switch
+  // processBlock does the actual switch for all three
   void add(int index, std::unique_ptr<juce::AudioPluginInstance>&& plugin);
-  // processBlock does the actualy switch
   void remove(PluginID id);
+  void move(PluginID id, size_t index);
 
   std::size_t size() const noexcept;
   std::shared_ptr<Plugin> plugin_at(size_t index);
@@ -67,6 +65,7 @@ public:
 
   std::unique_ptr<juce::AudioPluginInstance> instance_;
   const PluginID runtime_id_;
+  const std::string display_name_;
   const juce::String IdentifierString_; // used for creating the same plugin in another sesison
   std::atomic<bool> bypassed_ = true;
 

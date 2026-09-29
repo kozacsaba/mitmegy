@@ -198,7 +198,8 @@ int wmain(int argc, wchar_t* argv[])
       // Passthrough for now.
     };
 
-    mitmegy::AudioEngine engine(*audio_sink, *output, process);
+    mitmegy::AudioEngine engine(*audio_sink, *output);
+    engine.process_ = std::move(process);
     printFormat(engine.inputFormat());
     std::wcout << L"Press Ctrl+C to stop.\n";
 

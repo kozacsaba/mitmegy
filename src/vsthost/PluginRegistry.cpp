@@ -38,8 +38,7 @@ PluginRegistry::plugins() const noexcept
 }
 
 std::unique_ptr<juce::AudioPluginInstance>
-PluginRegistry::createInstance(
-    const juce::PluginDescription& description) const
+PluginRegistry::createInstance(const juce::PluginDescription& description) const
 {
   // Required by JUCE's generic plugin-format interface.
   // The VST3 implementation currently ignores these values.
@@ -59,8 +58,7 @@ PluginRegistry::createInstance(
     throw std::runtime_error(
         "Failed to create plugin '" +
         description.name.toStdString() +
-        "': " +
-        error.toStdString());
+        "': " + error.toStdString());
   }
 
   return instance;

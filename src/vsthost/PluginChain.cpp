@@ -13,6 +13,14 @@ juce::String getIdentifierString(const juce::AudioPluginInstance* instance)
   return description.createIdentifierString();
 }
 
+std::string getDisplayName(const juce::AudioPluginInstance* instance)
+{
+  if(instance == nullptr)
+    throw std::runtime_error("Cannot create display name from nullptr AudioPluginInstance");
+  const auto description = instance->getPluginDescription();
+  return description.name.toStdString();
+}
+
 } // namespace
 
 namespace mitmegy
@@ -24,6 +32,7 @@ PluginChain::Plugin::Plugin(
 )
   : instance_(std::move(instance))
   , runtime_id_(global_id_++)
+  , display_name_(getDisplayName(instance.get()))
   , IdentifierString_(getIdentifierString(instance_.get()))
 {
   instance_->prepareToPlay(sampleRate, maxBlockSize);
@@ -143,6 +152,54 @@ void PluginChain::remove(PluginID id)
     throw std::runtime_error("Cannot remove plugin instance. ID not found.");
 
   stage->erase(it);
+
+  switch_request_ = true;
+  switch_request_.wait(true);
+  // wait for processBlock to switch
+
+  try
+  {
+    stage_.load()->clear();
+  }
+  catch(const std::exception& e)
+  {
+    throw std::runtime_error("Error while destroying a plugin instance: "
+                             + std::string(e.what()));
+  }
+}
+
+void PluginChain::move(PluginID id, size_t index)
+{
+  if(index < 0)
+    throw std::invalid_argument("Invalid index: " + std::to_string(index));
+
+  const size_t size = live_.load()->size();
+  if(index >= (int)size)
+    throw std::invalid_argument("Cannot insert at invalid index " 
+      + std::to_string(index) + ", size is only " + std::to_string(size));
+
+  Chain* stage = stage_.load();
+  const Chain* live = live_.load();
+
+  stage->clear();
+  stage->reserve(live->size());
+  for(const auto& elem : *live)
+    stage->push_back(elem);
+
+  const auto it_from = std::find_if(stage->begin(), stage->end(), 
+    [&](const auto& elem) -> bool {
+      return elem->runtime_id_ == id;
+    });
+
+  if(it_from == stage->end())
+    throw std::runtime_error("Cannot move plugin instance. ID not found.");
+
+  auto it_to = stage->begin() + index;
+
+  if (it_from < it_to)
+    std::rotate(it_from, it_from + 1, it_to + 1);
+  else if (it_from > it_to)
+    std::rotate(it_to, it_from, it_from + 1);
 
   switch_request_ = true;
   switch_request_.wait(true);
