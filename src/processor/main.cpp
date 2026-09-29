@@ -26,7 +26,6 @@ BOOL WINAPI consoleHandler(DWORD event)
   if (event == CTRL_C_EVENT)
   {
     g_running.store(false, std::memory_order_relaxed);
-    // std::cout << "type quit" << std::endl;
     return TRUE;
   }
 
@@ -42,11 +41,11 @@ int wmain(int argc, wchar_t* argv[])
     SetConsoleCtrlHandler(consoleHandler, TRUE);
 
     mitmegy::Engine engine{};
-
     mitmegy::PluginRegistry registry;
-
     mitmegy::PluginChain plugin_chain;
+
     // restore last session / snapshot
+    
     auto process = [&](mitmegy::AudioFifo::ReadView& view, size_t frames)
     {
       std::array<float*, 8> channels{};
@@ -69,18 +68,13 @@ int wmain(int argc, wchar_t* argv[])
 
     mitmegy::MessageHandler handler(engine, plugin_chain, registry);
 
-    // start engine
-    // Engine doesnt even have a start function
-
-    // start handler
-
-
-
-    // MARK: VST SELECT
-
+    engine.start();
+    handler.start();
 
     g_running.wait(true);
 
+    handler.stop();
+    engine.stop();
 
     return 0;
   }

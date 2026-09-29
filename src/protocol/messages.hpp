@@ -29,7 +29,7 @@ enum class Type : size_t
 
   req_open_gui, // open editor for plugin
   req_rescan, // rescan plugin database
-  // TODO: res_failed_plugins, // plugin scan responds with list of failed plugins
+  res_failed_plugins, // plugin scan responds with list of failed plugins
 
   req_add_path, // add plugin scan path
   req_remove_path, // remove plugin scan path
@@ -101,6 +101,11 @@ struct Error
   std::string message;
 };
 
+struct FailedScans
+{
+  std::vector<std::string> plugins;
+};
+
 struct Query
 {
   query_subject subject;
@@ -170,6 +175,7 @@ type from_bytes(const std::vector<uint8_t>&)
 template<> std::vector<uint8_t> to_bytes<Noop>(const Noop& message);
 template<> std::vector<uint8_t> to_bytes<Path>(const Path& message);
 template<> std::vector<uint8_t> to_bytes<Error>(const Error& message);
+template<> std::vector<uint8_t> to_bytes<FailedScans>(const FailedScans& message);
 template<> std::vector<uint8_t> to_bytes<Query>(const Query& message);
 template<> std::vector<uint8_t> to_bytes<ListPlugins>(const ListPlugins& message);
 template<> std::vector<uint8_t> to_bytes<ListChain>(const ListChain& message);
@@ -179,10 +185,12 @@ template<> std::vector<uint8_t> to_bytes<AddPlugin>(const AddPlugin& message);
 template<> std::vector<uint8_t> to_bytes<BypassPlugin>(const BypassPlugin& message);
 template<> std::vector<uint8_t> to_bytes<MovePlugin>(const MovePlugin& message);
 template<> std::vector<uint8_t> to_bytes<SimpleId>(const SimpleId& message);
+template<> std::vector<uint8_t> to_bytes<SelectDevice>(const SelectDevice& message);
 
 template<> Noop from_bytes(const std::vector<uint8_t>& bytes);
 template<> Path from_bytes(const std::vector<uint8_t>& bytes);
 template<> Error from_bytes(const std::vector<uint8_t>& bytes);
+template<> FailedScans from_bytes(const std::vector<uint8_t>& bytes);
 template<> Query from_bytes(const std::vector<uint8_t>& bytes);
 template<> ListPlugins from_bytes(const std::vector<uint8_t>& bytes);
 template<> ListChain from_bytes(const std::vector<uint8_t>& bytes);
@@ -192,6 +200,7 @@ template<> AddPlugin from_bytes(const std::vector<uint8_t>& bytes);
 template<> BypassPlugin from_bytes(const std::vector<uint8_t>& bytes);
 template<> MovePlugin from_bytes(const std::vector<uint8_t>& bytes);
 template<> SimpleId from_bytes(const std::vector<uint8_t>& bytes);
+template<> SelectDevice from_bytes(const std::vector<uint8_t>& bytes);
 
 } // namespace msg
 

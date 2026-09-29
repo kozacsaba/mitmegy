@@ -5,6 +5,8 @@
 #include "mitmegy/Com.hpp"
 
 #include <memory>
+#include <atomic>
+#include <thread>
 
 namespace mitmegy
 {
@@ -14,6 +16,10 @@ class Engine
 public:
   Engine();
   ~Engine();
+
+  void start();
+  void stop();
+  bool isRunning() const { return running_; }
 
   const std::vector<mitmegy::Endpoint>& getEndpoints();
   bool selectDevice(const std::wstring& endpoint_id);
@@ -27,6 +33,9 @@ public:
 private:
   void log(const std::string& msg);
   void log(const std::wstring& msg);
+
+  std::atomic<bool> running_;
+  std::thread thread_;
 
   mitmegy::ComScope com_;
 

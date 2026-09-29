@@ -27,7 +27,7 @@ std::vector<uint8_t> serializeFrame(const Frame& frame);
 class Framer
 {
 public:
-  void pushBytes(const std::span<uint8_t>& bytes);
+  void pushBytes(std::span<const uint8_t> bytes);
 
   // Not thread safe. Should be called form the same thread as pushBytes
   std::optional<Frame> getFrame();

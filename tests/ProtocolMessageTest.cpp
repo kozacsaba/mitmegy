@@ -97,6 +97,19 @@ void test_error()
   assert(result.message == original.message);
 }
 
+void test_failed_plugins()
+{
+  FailedScans original = { 
+    .plugins = {"plugin a", "plugin b", "plugin c"}
+  };
+
+  const auto result = from_bytes<FailedScans>(to_bytes(original));
+
+  assert(result.plugins.size() == original.plugins.size());
+  for(size_t i = 0; i < result.plugins.size(); i++)
+    assert(result.plugins[i] == original.plugins[i]);
+}
+
 void test_query()
 {
   Query original {
@@ -185,13 +198,11 @@ void test_list_devices()
   ListDevices original {
     .devices = {
       {
-        .id = 0,
-        .type = "WASAPI",
+        .id = "0",
         .name = "Speakers (Realtek Audio)"
       },
       {
-        .id = 7,
-        .type = "ASIO",
+        .id = "7",
         .name = "Focusrite USB ASIO"
       }
     }
@@ -204,7 +215,6 @@ void test_list_devices()
   for (size_t i = 0; i < original.devices.size(); ++i)
   {
     assert(result.devices[i].id == original.devices[i].id);
-    assert(result.devices[i].type == original.devices[i].type);
     assert(result.devices[i].name == original.devices[i].name);
   }
 }
@@ -325,7 +335,7 @@ void test_open_gui()
 void test_select_device()
 {
   SelectDevice original {
-    .id = 300
+    .id = "300"
   };
 
   const auto result = from_bytes<SelectDevice>(to_bytes(original));

@@ -72,7 +72,30 @@ Engine::Engine()
     selectDevice(endpoints_[0].id);
 }
 
-Engine::~Engine() {}
+Engine::~Engine()
+{
+  stop();
+}
+
+void Engine::start()
+{
+  if(running_.exchange(true))
+    return;
+
+  if(engine_ == nullptr)
+    return;
+
+  thread_ = std::thread([this](){ engine_->run(running_); });
+}
+
+void Engine::stop()
+{
+  if(!running_.exchange(false))
+    return;
+
+  if(thread_.joinable())
+    thread_.join();
+}
 
 const std::vector<mitmegy::Endpoint>& Engine::getEndpoints()
 {

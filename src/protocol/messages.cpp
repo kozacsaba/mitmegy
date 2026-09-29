@@ -328,6 +328,22 @@ template<> Error from_bytes(const std::vector<uint8_t>& bytes)
   return message;
 }
 
+template<> std::vector<uint8_t> to_bytes<FailedScans>(const FailedScans& message)
+{
+  std::vector<uint8_t> bytes(serialized_vector_size(message.plugins));
+  auto front = bytes.begin(); auto end = bytes.end();
+  writeVectorOf<std::string>(front, end, message.plugins);
+  return bytes;
+}
+
+template<> FailedScans from_bytes(const std::vector<uint8_t>& bytes)
+{
+  FailedScans plugins;
+  ConstIter front = bytes.begin();
+  plugins.plugins = readVectorOf<std::string>(front, bytes.end());
+  return plugins;
+}
+
 template<> std::vector<uint8_t> to_bytes<Query>(const Query& message)
 {
   using Base = std::underlying_type_t<query_subject>;
@@ -396,7 +412,7 @@ template<> ListDevices from_bytes(const std::vector<uint8_t>& bytes)
 template<> std::vector<uint8_t> to_bytes<ListPaths>(const ListPaths& message)
 {
   std::vector<uint8_t> bytes(serialized_vector_size(message.paths));
-  auto front = bytes.begin(); auto end ( bytes.end());
+  auto front = bytes.begin(); auto end = bytes.end();
   writeVectorOf<std::string>(front, end, message.paths);
   return bytes;
 }

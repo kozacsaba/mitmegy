@@ -14,7 +14,7 @@ std::vector<uint8_t> serializeFrame(const Frame& frame)
   return byte_vector;
 }
 
-void Framer::pushBytes(const std::span<uint8_t>& bytes)
+void Framer::pushBytes(std::span<const uint8_t> bytes)
 {
   buffer_.insert(buffer_.end(), bytes.begin(), bytes.end());
 }

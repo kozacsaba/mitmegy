@@ -190,6 +190,8 @@ void MessageHandler::log(const std::string& msg) const
   std::cout << msg << std::endl;
 }
 
+// MARK: Handlers
+
 void MessageHandler::handle_noop(size_t id, const std::vector<uint8_t>& pl)
 {
   (void) pl;
@@ -272,7 +274,20 @@ void MessageHandler::handle_query(size_t id, const std::vector<uint8_t>& pl)
 
 void MessageHandler::handle_add_plugin(size_t id, const std::vector<uint8_t>& pl)
 {
-  // TODO: implement
+  using namespace msg;
+  const AddPlugin request = from_bytes<AddPlugin>(pl);
+
+  const plugin_static_id plugin_id = request.id;
+  if(!scannedPlugins_.contains(plugin_id))
+  {
+    sendError(id, "No scanned plugin with static id " + std::to_string(plugin_id));
+    return;
+  }
+
+  const juce::PluginDescription& desc = scannedPlugins_[plugin_id];
+  std::unique_ptr<juce::AudioPluginInstance> instance = registry_.createInstance(desc);
+  chain_.add(request.id, std::move(instance)); // throws on failure
+  sendSuccess(id);
 }
 
 void MessageHandler::handle_bypass_plugin(size_t id, const std::vector<uint8_t>& pl)
@@ -319,28 +334,28 @@ void MessageHandler::handle_rescan(size_t id, const std::vector<uint8_t>& pl)
   scannedPlugins_.clear();
   const auto& failures = registry_.scan();
 
-  // TODO: Do this by calling the public method instead
+  // TODO: Do this by calling the public method instead (see header)
   const auto& scanned = registry_.plugins().getTypes();
   const size_t num_plugins = scanned.size();
   scannedPlugins_.reserve(num_plugins);
   for(size_t i = 0; i < num_plugins; i++)
     scannedPlugins_.emplace(global_plugin_id_++, scanned[i]);
 
-  // TODO: respond with list of failed scans
-  // using namespace msg;
-  // FailedScans response;
-  // for(const auto& err_message : failures)
-  //   response.message.push_back(err_message.toStdString());
+  using namespace msg;
+  FailedScans response;
+  for(const auto& err_message : failures)
+    response.plugins.push_back(err_message.toStdString());
 
-  sendSuccess(id);
+  auto payload = to_bytes(response);
+  sendMessage(std::move(payload), (size_t)Type::res_failed_plugins, id);
 }
 
-void MessageHandler::handle_add_path      (size_t id, const std::vector<uint8_t>& pl)
+void MessageHandler::handle_add_path(size_t id, const std::vector<uint8_t>& pl)
 {
   // TODO: no search paths just yet
 }
 
-void MessageHandler::handle_remove_path   (size_t id, const std::vector<uint8_t>& pl)
+void MessageHandler::handle_remove_path(size_t id, const std::vector<uint8_t>& pl)
 {
   // TODO: no search paths just yet
 }
@@ -368,12 +383,12 @@ void MessageHandler::handle_select_device(size_t id, const std::vector<uint8_t>&
   sendSuccess(id);
 }
 
-void MessageHandler::handle_save_snapshot (size_t id, const std::vector<uint8_t>& pl)
+void MessageHandler::handle_save_snapshot(size_t id, const std::vector<uint8_t>& pl)
 {
   // TODO: no snapshots yet
 }
 
-void MessageHandler::handle_load_snapshot (size_t id, const std::vector<uint8_t>& pl)
+void MessageHandler::handle_load_snapshot(size_t id, const std::vector<uint8_t>& pl)
 {
   // TODO: no snapshots yet
 }

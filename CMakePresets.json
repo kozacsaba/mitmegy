@@ -10,7 +10,6 @@
       "binaryDir": "${sourceDir}/build/vs2026-x64"
     }
   ],
-
   "buildPresets": [
     {
       "name": "debug",
@@ -22,5 +21,15 @@
       "configurePreset": "vs2026-x64",
       "configuration": "Release"
     }
-  ]
+  ],
+  "testPresets": [
+    {
+        "name": "debug",
+        "configurePreset": "vs2026-x64",
+        "configuration": "Debug",
+        "output": {
+            "outputOnFailure": true
+        }
+    }
+]
 }

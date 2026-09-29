@@ -1,7 +1,5 @@
 # Unit tests
 
-enable_testing()
-
 add_custom_target(all_tests)
 
 function(add_unit_test test_name lib)
