@@ -114,9 +114,14 @@ bool Engine::selectDevice(const std::wstring& endpoint_id)
   if(it == endpoints_.end())
     return false;
 
+  const bool was_running = running_;
+
+  stop();
   engine_ = nullptr;
   engine_ = std::make_unique<mitmegy::AudioEngine>(*audio_sink_, *it);
   engine_->process_ = callback_;
+  if(was_running)
+    start();
 
   // TMP
   log(

@@ -32,7 +32,7 @@ PluginChain::Plugin::Plugin(
 )
   : instance_(std::move(instance))
   , runtime_id_(global_id_++)
-  , display_name_(getDisplayName(instance.get()))
+  , display_name_(getDisplayName(instance_.get()))
   , IdentifierString_(getIdentifierString(instance_.get()))
 {
   instance_->prepareToPlay(sampleRate, maxBlockSize);

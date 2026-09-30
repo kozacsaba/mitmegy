@@ -286,7 +286,7 @@ void MessageHandler::handle_add_plugin(size_t id, const std::vector<uint8_t>& pl
 
   const juce::PluginDescription& desc = scannedPlugins_[plugin_id];
   std::unique_ptr<juce::AudioPluginInstance> instance = registry_.createInstance(desc);
-  chain_.add(request.id, std::move(instance)); // throws on failure
+  chain_.add(request.index, std::move(instance)); // throws on failure
   sendSuccess(id);
 }
 
