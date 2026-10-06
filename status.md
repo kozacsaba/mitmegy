@@ -12,10 +12,10 @@ TESTS:
 [ ] - path
 [x] req_add_plugin
 [x] req_bypass_plugin
-[ ] req_remove_plugin
-[ ] req_move_plugin
+[x] req_remove_plugin
+[x] req_move_plugin
 [ ] req_open_gui
-[ ] req_rescan
+[x] req_rescan
 [ ] req_add_path
 [ ] req_remove_path
 [x] req_select_device

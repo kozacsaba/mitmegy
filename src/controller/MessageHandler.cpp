@@ -166,7 +166,7 @@ void MessageHandler::send_remove_plugin(size_t id)
 {
   msg::RemovePlugin message { id };
   auto payload = to_bytes(message);
-  sendMessage(std::move(payload), (size_t)msg::Type::req_move_plugin);
+  sendMessage(std::move(payload), (size_t)msg::Type::req_remove_plugin);
 }
 
 void MessageHandler::send_move_plugin(size_t id, int index)
