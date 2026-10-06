@@ -485,7 +485,7 @@ template<> MovePlugin from_bytes(const std::vector<uint8_t>& bytes)
 
 template<> std::vector<uint8_t> to_bytes<SelectDevice>(const SelectDevice& message)
 {
-  std::vector<uint8_t> bytes(sizeof(size_t));
+  std::vector<uint8_t> bytes(serialized_size(message.id));
 
   auto front = bytes.begin(); auto end ( bytes.end());
   write<std::string>(front, end, message.id);

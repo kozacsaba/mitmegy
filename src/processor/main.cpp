@@ -26,6 +26,7 @@ BOOL WINAPI consoleHandler(DWORD event)
   if (event == CTRL_C_EVENT)
   {
     g_running.store(false, std::memory_order_relaxed);
+    g_running.notify_all();
     return TRUE;
   }
 
