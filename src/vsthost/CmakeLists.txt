@@ -11,7 +11,7 @@ target_include_directories(vsthost
 )
 
 target_link_libraries(vsthost
-  PUBLIC
+  PRIVATE
     juce::juce_audio_processors
 )
 
