@@ -13,6 +13,9 @@ target_sources(controller PRIVATE
   RequestManager.cpp
 
   gui/MainComponent.cpp
+  gui/AudioDevicePanel.cpp
+  gui/PluginChainPanel.cpp
+  gui/Sidebar.cpp
 )
 
 target_include_directories(controller PRIVATE
