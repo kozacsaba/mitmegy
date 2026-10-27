@@ -1,11 +1,12 @@
 #include "gui/MainComponent.hpp"
+#include "RequestManager.hpp"
 
 namespace mitmegy
 {
 
-MainComponent::MainComponent()
-{
-}
+MainComponent::MainComponent(RequestManager& request_manager)
+  : request_manager_(request_manager)
+{}
 
 void MainComponent::paint(juce::Graphics& g)
 {

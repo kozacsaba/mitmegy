@@ -1,8 +1,7 @@
 #include "RequestManager.hpp"
 
-#include "protocol/messages.hpp"
-
 #include <optional>
+#include <atomic>
 
 namespace
 {
@@ -26,6 +25,20 @@ mitmegy::Frame makeErrorFrame(const std::string& message)
 
 namespace mitmegy
 {
+
+Frame makeFrameFrom(msg::Type type, std::vector<uint8_t> payload)
+{
+  static std::atomic<size_t> g_id = 0;
+
+  Frame frame;
+  frame.header.id = g_id.fetch_add(1);
+  frame.header.msg_type = (size_t) type;
+  frame.header.length = payload.size();
+  frame.header.version = VERSION;
+
+  frame.payload = std::move(payload);
+  return frame;
+}
 
 RequestManager::RequestManager(MessageHandler& messageHandler)
   : messageHandler_(messageHandler)
@@ -123,6 +136,12 @@ void RequestManager::postRequest(
     std::scoped_lock lock(que_mut_);
     que_.push_back(std::move(task));
   } // lock que
+}
+
+void RequestManager::postRequest(
+  msg::Type type, std::vector<uint8_t> payload, FrameProcessor resp_handler, size_t timeout_ms)
+{
+  postRequest(makeFrameFrom(type, std::move(payload)), std::move(resp_handler), timeout_ms);
 }
 
 void RequestManager::completeNotSent(Request& req)

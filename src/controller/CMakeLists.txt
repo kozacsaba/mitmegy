@@ -10,6 +10,7 @@ target_sources(controller PRIVATE
 
   ControllerApp.cpp
   MessageHandler.cpp
+  RequestManager.cpp
 
   gui/MainComponent.cpp
 )

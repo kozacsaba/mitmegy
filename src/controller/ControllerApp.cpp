@@ -24,6 +24,10 @@ namespace mitmegy
 
 // ControllerApp
 
+ControllerApp::ControllerApp()
+  : request_manager_(message_handler_)
+{}
+
 const juce::String ControllerApp::getApplicationName()
 {
   return APPLICATION_NAME;
@@ -42,6 +46,7 @@ bool ControllerApp::moreThanOneInstanceAllowed()
 void ControllerApp::initialise(const juce::String&)
 {
   message_handler_.start();
+  request_manager_.start();
   main_window_ = std::make_unique<MainWindow>(*this);
 }
 
@@ -49,6 +54,7 @@ void ControllerApp::shutdown()
 {
   main_window_.reset();
   message_handler_.stop();
+  request_manager_.stop();
 }
 
 void ControllerApp::systemRequestedQuit()
@@ -69,11 +75,12 @@ ControllerApp::MainWindow::MainWindow(ControllerApp& app)
                    juce::Colours::darkgrey,
                    juce::DocumentWindow::allButtons)
   , app_(app)
+  , request_manager_(app_.getRequestManager())
 {
   setUsingNativeTitleBar(true);
   setResizable(true, false);
 
-  auto mainComponent = std::make_unique<MainComponent>();
+  auto mainComponent = std::make_unique<MainComponent>(request_manager_);
   // set mainComponent up here, and/or in the ctor above
   // unique ptr is used so that failure in initialisation would not leak
   setContentOwned(mainComponent.release(), true);

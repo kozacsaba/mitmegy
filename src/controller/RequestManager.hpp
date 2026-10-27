@@ -7,7 +7,8 @@
 #pragma once
 
 #include "MessageHandler.hpp"
-#include "Frame.hpp"
+#include "protocol/Frame.hpp"
+#include "protocol/messages.hpp"
 
 #include <thread>
 #include <atomic>
@@ -21,16 +22,35 @@
 namespace mitmegy
 {
 
-// TODO: maybe think about only exposing payload, and generate frame headers
-// automatically? only Type is needed from header after unpacking, so most
-// of the header could be just omitted
+namespace detail
+{
+
+using Deadline = std::chrono::steady_clock::time_point;
+using FrameProcessor = std::function<void(Frame)>; // single use consumer
+
+struct Task
+{
+  Frame frame;
+  FrameProcessor task;
+}; // RequestHandler::Task
+
+struct Request
+{
+  FrameProcessor response_handler;
+  Deadline deadline;
+}; // RequestHandler::Request
+
+} // namespace detail
+
+Frame makeFrameFrom(msg::Type type, std::vector<uint8_t> payload);
+
 class RequestManager
 {
 public:
-  using Deadline = std::chrono::steady_clock::time_point;
-  using FrameProcessor = std::function<void(Frame)>; // single use consumer
-  struct Task;
-  struct Request;
+  using Deadline = detail::Deadline;
+  using FrameProcessor = detail::FrameProcessor;
+  using Task = detail::Task;
+  using Request = detail::Request;
 
 public:
   RequestManager(MessageHandler& messageHandler);
@@ -41,6 +61,9 @@ public:
   bool isRunning() const { return running_; }
 
   // taking Frame by value, because it is consumed. Do not call if not running
+  void postRequest(msg::Type type, std::vector<uint8_t> payload, FrameProcessor resp_handler, size_t timeout_ms);
+
+  // Prefer the other overload of the function, since that one handles IDs and versioning automatically
   void postRequest(Frame frame, FrameProcessor resp_handler, size_t timeout_ms);
 
 private:
@@ -62,17 +85,5 @@ private:
   std::unordered_map<size_t, Request> requests_;
 
 }; // RequestManager
-
-struct RequestManager::Task
-{
-  Frame frame;
-  FrameProcessor task;
-}; // RequestHandler::Task
-
-struct RequestManager::Request
-{
-  FrameProcessor response_handler;
-  Deadline deadline;
-}; // RequestHandler::Request
 
 } // namespace mitmegy

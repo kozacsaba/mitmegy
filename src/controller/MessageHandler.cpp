@@ -44,7 +44,7 @@ void MessageHandler::stop()
 bool MessageHandler::sendFrame(const Frame& frame)
 {
   const auto packet = serializeFrame(frame);
-  connection_->writeAll(packet);
+  return connection_->writeAll(packet);
 }
 
 void MessageHandler::setMessageHandler(FrameHandler handler)

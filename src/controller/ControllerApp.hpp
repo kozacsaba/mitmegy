@@ -1,6 +1,7 @@
 #pragma once
 
 #include "MessageHandler.hpp"
+#include "RequestManager.hpp"
 
 #include <juce_gui_basics/juce_gui_basics.h>
 
@@ -10,6 +11,8 @@ namespace mitmegy
 class ControllerApp : public juce::JUCEApplication
 {
 public:
+  ControllerApp();
+
   const juce::String getApplicationName() override;
   const juce::String getApplicationVersion() override;
 
@@ -20,10 +23,13 @@ public:
   void shutdown() override;
   void systemRequestedQuit() override;
 
+  RequestManager& getRequestManager() { return request_manager_; }
+
 private:
   class MainWindow;
 
   MessageHandler message_handler_;
+  RequestManager request_manager_;
   std::unique_ptr<MainWindow> main_window_;
 
 }; // ControllerApp
@@ -36,6 +42,7 @@ public:
 
 private:
   ControllerApp& app_;
+  RequestManager& request_manager_;
 }; // ControllerApp::MainWindow
 
 } // namespace mitmegy
