@@ -1,23 +1,20 @@
 #include "AudioDevicePanel.hpp"
-#include "RequestManager.hpp"
+#include "tweaks.hpp"
 
 namespace mitmegy
 {
 
-AudioDevicePanel::AudioDevicePanel(RequestManager& request_manager)
-  : request_manager_(request_manager)
+AudioDevicePanel::AudioDevicePanel()
 {
-  
+  addAndMakeVisible(cbxDeviceSelector_);
 }
 
 void AudioDevicePanel::resized()
 {
-
+  cbxDeviceSelector_.setBounds(getLocalBounds().reduced(COMPONENT_MARGIN));
 }
 
 void AudioDevicePanel::paint(juce::Graphics& g)
-{
-
-}
+{}
 
 } // namespace mitmegy

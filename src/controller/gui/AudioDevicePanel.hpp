@@ -9,29 +9,17 @@
 namespace mitmegy
 {
 
-class RequestManager;
-
-struct AudioDevice
-{
-  int list_id;
-  std::string device_id;
-};
-
+// TODO: Keeping this as a separate component class even if it only contains
+// one combo box, because we might eventually want to add a refresh button
 class AudioDevicePanel : public juce::Component
 {
 public:
-  AudioDevicePanel(RequestManager& request_manager);
+  AudioDevicePanel();
 
   void resized() override;
   void paint(juce::Graphics& g) override;
 
-private:
-  RequestManager& request_manager_;
-
   juce::ComboBox cbxDeviceSelector_;
-  std::vector<AudioDevice> devices_;
-  std::mutex mut_;
-
 }; // AudioDevicePanel
 
 } // namespace mitmegy
