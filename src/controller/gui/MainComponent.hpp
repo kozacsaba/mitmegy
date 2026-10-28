@@ -32,7 +32,7 @@ public:
   void resized() override;
 
 private:
-  void init();
+  void initContent();
 
   RequestManager& request_manager_;
 

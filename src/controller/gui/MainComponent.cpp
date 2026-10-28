@@ -12,6 +12,36 @@
     throw std::logic_error(std::string(__func__) +                              \
                            " must be called from the message thread")           \
 
+namespace
+{
+
+void save_preset(mitmegy::RequestManager& request_manager)
+{
+  // TODO
+}
+
+void load_preset(mitmegy::RequestManager& request_manager)
+{
+  // TODO
+}
+
+void edit_search_paths(mitmegy::RequestManager& request_manager)
+{
+  // TODO:
+}
+
+void show_logs()
+{
+  // TODO:
+}
+
+void rescan_plugin_list(mitmegy::RequestManager& request_manager)
+{
+  // TODO: this will need to be inlined or passed the plugin chain panel or something
+}
+
+} // namespace
+
 namespace mitmegy
 {
 
@@ -20,9 +50,16 @@ constexpr int NoneSelectedID = 0;
 MainComponent::MainComponent(RequestManager& request_manager)
   : request_manager_(request_manager)
   , pluginChainPanel_(request_manager_)
-  , sidebar_(request_manager_)
 {
-  init();
+  audioDevicePanel_.cbxDeviceSelector_.onChange = [&](){ audioDeviceSelected(); };
+
+  sidebar_.btnSavePreset_.onClick = [&](){ save_preset(request_manager_); };
+  sidebar_.btnLoadPreset_.onClick = [&](){ load_preset(request_manager_); };
+  sidebar_.btnSearchPaths_.onClick = [&](){ edit_search_paths(request_manager_); };
+  sidebar_.btnShowLogs_.onClick = [&](){ show_logs(); };
+  sidebar_.btnRescanPluginList_.onClick = [&](){ rescan_plugin_list(request_manager_); };
+
+  initContent();
 
   addAndMakeVisible(audioDevicePanel_);
   addAndMakeVisible(sidebar_);
@@ -31,7 +68,7 @@ MainComponent::MainComponent(RequestManager& request_manager)
 
 void MainComponent::paint(juce::Graphics& g)
 {
-  g.fillAll(juce::Colours::darkgrey);
+  g.fillAll(BACKGROUND_COLOR);
 }
 
 void MainComponent::resized()
@@ -43,7 +80,7 @@ void MainComponent::resized()
   pluginChainPanel_.setBounds(area);
 }
 
-void MainComponent::init()
+void MainComponent::initContent()
 {
   msg::Query command { msg::query_subject::audio_devices };
   auto payload = msg::to_bytes(command);
