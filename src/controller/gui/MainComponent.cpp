@@ -6,6 +6,7 @@
 #include "juce_events/juce_events.h"
 
 #include <stdexcept>
+#include <algorithm> 
 
 #define ASSERT_MESSAGE_THREAD                                                   \
   if(!juce::MessageManager::getInstance()->isThisTheMessageThread())            \
@@ -49,9 +50,18 @@ constexpr int NoneSelectedID = 0;
 
 MainComponent::MainComponent(RequestManager& request_manager)
   : request_manager_(request_manager)
-  , pluginChainPanel_(request_manager_)
 {
   audioDevicePanel_.cbxDeviceSelector_.onChange = [&](){ audioDeviceSelected(); };
+
+  auto& model = pluginChainPanel_.listModel_;
+  model.bypassClicked_ = [&](PluginID runtime_id, bool bypassed)
+    { bypassPlugin(runtime_id, bypassed); };
+  model.moveUpClicked_ = [&](PluginID runtime_id, int old_index)
+    { movePlugin(runtime_id, old_index, true); };
+  model.moveDownClicked_ = [&](PluginID runtime_id, int old_index)
+    { movePlugin(runtime_id, old_index, false); };
+  model.removeClicked_ = [&](PluginID runtime_id)
+    { removePlugin(runtime_id); };
 
   sidebar_.btnSavePreset_.onClick = [&](){ save_preset(request_manager_); };
   sidebar_.btnLoadPreset_.onClick = [&](){ load_preset(request_manager_); };
@@ -82,23 +92,40 @@ void MainComponent::resized()
 
 void MainComponent::initContent()
 {
-  msg::Query command { msg::query_subject::audio_devices };
-  auto payload = msg::to_bytes(command);
-  request_manager_.postRequest(
-    msg::Type::req_query, payload,
-    [&](Frame frame)
-    {
-      if(frame.header.msg_type != (size_t) msg::Type::res_query_devices)
-        return; // maybe log?
+  { // scope
+    msg::Query command { msg::query_subject::audio_devices };
+    auto payload = msg::to_bytes(command);
+    request_manager_.postRequest(
+      msg::Type::req_query, payload,
+      [&](Frame frame)
+      {
+        if(frame.header.msg_type != (size_t) msg::Type::res_query_devices)
+          return; // maybe log?
 
-      msg::ListDevices list = msg::from_bytes<msg::ListDevices>(frame.payload);
-      juce::MessageManager::callAsync([this, list = std::move(list)]
-        { updateAudioDeviceList(list); });
-    },
-    200
-  );
+        auto list = msg::from_bytes<msg::ListDevices>(frame.payload);
+        juce::MessageManager::callAsync([this, list = std::move(list)]
+          { updateAudioDeviceList(list); });
+      },
+      TIMEOUT_NORMAL
+    );
+  } // scope
 
-  // ...
+  { // scope
+    msg::Query command { msg::query_subject::active_chain };
+    auto payload = msg::to_bytes(command);
+    request_manager_.postRequest(
+      msg::Type::res_query_chain, std::move(payload),
+      [&](Frame frame)
+      {
+        if(frame.header.msg_type != (size_t) msg::Type::res_query_chain)
+          return;
+
+        auto list = msg::from_bytes<msg::ListChain>(frame.payload);
+        juce::MessageManager::callAsync([this, list = std::move(list)]
+          { updateActiveChain(list); });
+      },
+      TIMEOUT_NORMAL);
+  } // scope
 }
 
 void MainComponent::updateAudioDeviceList(const msg::ListDevices& list)
@@ -107,13 +134,13 @@ void MainComponent::updateAudioDeviceList(const msg::ListDevices& list)
 
   auto& cbx = audioDevicePanel_.cbxDeviceSelector_;
   cbx.clear(juce::dontSendNotification);
-  devices_.clear();
+  audioDevicePanel_.devices_.clear();
   int list_id = 1;
 
-  devices_.reserve(list.devices.size());
+  audioDevicePanel_.devices_.reserve(list.devices.size());
   for(const auto& dev : list.devices)
   {
-    devices_.push_back({list_id, dev.id, dev.name});
+    audioDevicePanel_.devices_.push_back({list_id, dev.id, dev.name});
     cbx.addItem(dev.name, list_id);
     list_id++;
   }
@@ -132,11 +159,11 @@ void MainComponent::audioDeviceSelected()
     return; // none selected
 
   const auto it = std::find_if(
-    devices_.begin(), devices_.end(), 
+    audioDevicePanel_.devices_.begin(), audioDevicePanel_.devices_.end(), 
     [&](const AudioDevice& elem)
     { return elem.list_id == list_id; });
 
-  if(it == devices_.end() || it->device_id.empty())
+  if(it == audioDevicePanel_.devices_.end() || it->device_id.empty())
     throw std::runtime_error("ComboBox selected a device with no ID");
 
   msg::SelectDevice command { it->device_id };
@@ -153,7 +180,97 @@ void MainComponent::audioDeviceSelected()
       juce::MessageManager::callAsync([&]()
       { audioDevicePanel_.cbxDeviceSelector_.setSelectedId(id, juce::dontSendNotification); });
     },
-    200);
+    TIMEOUT_NORMAL);
+}
+
+void MainComponent::updateActiveChain(const msg::ListChain& list)
+{
+  auto& model = pluginChainPanel_.listModel_;
+  model.plugins_.clear();
+  model.plugins_.reserve(list.plugins.size());
+
+  for(const auto& elem : list.plugins)
+  {
+    PluginListModel::Element plugin;
+    plugin.bypassed = elem.bypassed;
+    plugin.display_name = elem.display_name;
+    plugin.runtime_id = elem.id;
+
+    model.plugins_.push_back(std::move(plugin));
+  }
+
+  pluginChainPanel_.lbxPluginChain_.updateContent();
+  pluginChainPanel_.lbxPluginChain_.repaint();
+}
+
+void MainComponent::bypassPlugin(PluginID runtime_id, bool bypass)
+{
+  msg::BypassPlugin command { runtime_id, bypass };
+  auto payload = msg::to_bytes(command);
+
+  request_manager_.postRequest(msg::Type::req_bypass_plugin, std::move(payload), nullptr, TIMEOUT_NORMAL);
+}
+
+void MainComponent::movePlugin(PluginID runtime_id, int old_index, bool up_one)
+{
+  const int new_index = up_one 
+    ? old_index - 1
+    : old_index + 1;
+
+  msg::MovePlugin command { runtime_id, new_index };
+  auto payload = msg::to_bytes(command);
+
+  request_manager_.postRequest(
+    msg::Type::req_move_plugin, std::move(payload),
+    [this, old_index, new_index](Frame frame)
+    {
+      if(frame.header.msg_type != (size_t) msg::Type::res_completed)
+        return;
+
+      juce::MessageManager::callAsync([this, old_index, new_index]
+      {
+        const auto first = pluginChainPanel_.listModel_.plugins_.begin();
+        auto old_place = first + old_index;
+        auto new_place = first + new_index;
+        std::iter_swap(old_place, new_place);
+
+        pluginChainPanel_.lbxPluginChain_.updateContent();
+        pluginChainPanel_.lbxPluginChain_.repaint();
+      });
+    },
+    TIMEOUT_NORMAL
+  );
+}
+
+void MainComponent::removePlugin(PluginID runtime_id)
+{
+  msg::RemovePlugin command { runtime_id };
+  auto payload = msg::to_bytes(command);
+
+  request_manager_.postRequest(
+    msg::Type::req_remove_plugin, std::move(payload),
+    [this, runtime_id](Frame frame)
+    {
+      if(frame.header.msg_type != (size_t) msg::Type::res_completed)
+        return;
+
+      juce::MessageManager::callAsync([this, runtime_id]()
+      {
+        auto& model = pluginChainPanel_.listModel_;
+        auto it = std::find_if(
+          model.plugins_.begin(), model.plugins_.end(),
+          [&](const PluginListModel::Element& elem)
+          { return elem.runtime_id == runtime_id; });
+
+        if(it == model.plugins_.end())
+          return;
+
+        model.plugins_.erase(it);
+        pluginChainPanel_.lbxPluginChain_.updateContent();
+        pluginChainPanel_.lbxPluginChain_.repaint();
+      });     
+    },
+    TIMEOUT_NORMAL);
 }
 
 } // namespace mitmegy

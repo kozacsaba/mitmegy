@@ -12,16 +12,10 @@ namespace mitmegy
 namespace msg
 {
   struct ListDevices;
+  struct ListChain;
 } // namespace msg
 
 class RequestManager;
-
-struct AudioDevice
-{
-  int list_id;
-  std::string device_id;
-  std::string name;
-};
 
 class MainComponent : public juce::Component
 {
@@ -41,11 +35,14 @@ private:
   Sidebar sidebar_;
 
   // message thread exclusive callbacks
+
   void updateAudioDeviceList(const msg::ListDevices& list);
   void audioDeviceSelected();
 
-  // message thread exclusive members
-  std::vector<AudioDevice> devices_;
+  void updateActiveChain(const msg::ListChain& list);
+  void bypassPlugin(PluginID runtime_id, bool bypass);
+  void movePlugin(PluginID runtime_id, int old_index, bool up_one);
+  void removePlugin(PluginID runtime_id);
 };
 
 } // namespace mitmegy
