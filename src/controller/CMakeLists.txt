@@ -12,9 +12,10 @@ target_sources(controller PRIVATE
   MessageHandler.cpp
   RequestManager.cpp
 
-  gui/MainComponent.cpp
   gui/AudioDevicePanel.cpp
+  gui/MainComponent.cpp
   gui/PluginChainPanel.cpp
+  gui/PluginSelector.cpp
   gui/Sidebar.cpp
 )
 
@@ -23,7 +24,7 @@ target_include_directories(controller PRIVATE
 )
 
 target_compile_definitions(controller PRIVATE
-    MITMEGY_VERSION="$<TARGET_PROPERTY:controller,JUCE_VERSION>"
+  MITMEGY_VERSION="$<TARGET_PROPERTY:controller,JUCE_VERSION>"
 )
 
 target_link_libraries(controller PRIVATE

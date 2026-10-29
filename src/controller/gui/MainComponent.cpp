@@ -1,4 +1,5 @@
 #include "gui/MainComponent.hpp"
+#include "gui/PluginSelector.hpp"
 #include "gui/tweaks.hpp"
 #include "RequestManager.hpp"
 #include "protocol/messages.hpp"
@@ -36,9 +37,13 @@ void show_logs()
   // TODO:
 }
 
-void rescan_plugin_list(mitmegy::RequestManager& request_manager)
+void open_gui_for(mitmegy::PluginID runtime_id, mitmegy::RequestManager& request_manager)
 {
-  // TODO: this will need to be inlined or passed the plugin chain panel or something
+  mitmegy::msg::OpenGui command { runtime_id };
+  auto payload = mitmegy::msg::to_bytes(command);
+  request_manager.postRequest(
+    mitmegy::msg::Type::req_open_gui, std::move(payload),
+    nullptr, mitmegy::TIMEOUT_NORMAL);
 }
 
 } // namespace
@@ -53,6 +58,8 @@ MainComponent::MainComponent(RequestManager& request_manager)
 {
   audioDevicePanel_.cbxDeviceSelector_.onChange = [&](){ audioDeviceSelected(); };
 
+  pluginChainPanel_.btnAddPlugin_.onClick = [&](){ openPluginSelector(); };
+
   auto& model = pluginChainPanel_.listModel_;
   model.bypassClicked_ = [&](PluginID runtime_id, bool bypassed)
     { bypassPlugin(runtime_id, bypassed); };
@@ -63,11 +70,15 @@ MainComponent::MainComponent(RequestManager& request_manager)
   model.removeClicked_ = [&](PluginID runtime_id)
     { removePlugin(runtime_id); };
 
+  model.itemSingleClicked_ = [&](PluginID runtime_id)
+    { open_gui_for(runtime_id, request_manager_); };
+  // model.itemDoubleClicked_; // TODO: change display name
+
   sidebar_.btnSavePreset_.onClick = [&](){ save_preset(request_manager_); };
   sidebar_.btnLoadPreset_.onClick = [&](){ load_preset(request_manager_); };
   sidebar_.btnSearchPaths_.onClick = [&](){ edit_search_paths(request_manager_); };
   sidebar_.btnShowLogs_.onClick = [&](){ show_logs(); };
-  sidebar_.btnRescanPluginList_.onClick = [&](){ rescan_plugin_list(request_manager_); };
+  sidebar_.btnRescanPluginList_.onClick = [&](){ rescanPluginList(); };
 
   initContent();
 
@@ -110,22 +121,8 @@ void MainComponent::initContent()
     );
   } // scope
 
-  { // scope
-    msg::Query command { msg::query_subject::active_chain };
-    auto payload = msg::to_bytes(command);
-    request_manager_.postRequest(
-      msg::Type::res_query_chain, std::move(payload),
-      [&](Frame frame)
-      {
-        if(frame.header.msg_type != (size_t) msg::Type::res_query_chain)
-          return;
-
-        auto list = msg::from_bytes<msg::ListChain>(frame.payload);
-        juce::MessageManager::callAsync([this, list = std::move(list)]
-          { updateActiveChain(list); });
-      },
-      TIMEOUT_NORMAL);
-  } // scope
+  updateActiveChain();
+  rescanPluginList();
 }
 
 void MainComponent::updateAudioDeviceList(const msg::ListDevices& list)
@@ -183,24 +180,40 @@ void MainComponent::audioDeviceSelected()
     TIMEOUT_NORMAL);
 }
 
-void MainComponent::updateActiveChain(const msg::ListChain& list)
+void MainComponent::updateActiveChain()
 {
-  auto& model = pluginChainPanel_.listModel_;
-  model.plugins_.clear();
-  model.plugins_.reserve(list.plugins.size());
+  msg::Query command { msg::query_subject::active_chain };
+  auto payload = msg::to_bytes(command);
+  request_manager_.postRequest(
+    msg::Type::res_query_chain, std::move(payload),
+    [&](Frame frame)
+    {
+      if(frame.header.msg_type != (size_t) msg::Type::res_query_chain)
+        return;
 
-  for(const auto& elem : list.plugins)
-  {
-    PluginListModel::Element plugin;
-    plugin.bypassed = elem.bypassed;
-    plugin.display_name = elem.display_name;
-    plugin.runtime_id = elem.id;
+      auto list = msg::from_bytes<msg::ListChain>(frame.payload);
+      juce::MessageManager::callAsync(
+        [this, list = std::move(list)]
+        {
+          auto& model = pluginChainPanel_.listModel_;
+          model.plugins_.clear();
+          model.plugins_.reserve(list.plugins.size());
 
-    model.plugins_.push_back(std::move(plugin));
-  }
+          for(const auto& elem : list.plugins)
+          {
+            PluginListModel::Element plugin;
+            plugin.bypassed = elem.bypassed;
+            plugin.display_name = elem.display_name;
+            plugin.runtime_id = elem.id;
 
-  pluginChainPanel_.lbxPluginChain_.updateContent();
-  pluginChainPanel_.lbxPluginChain_.repaint();
+            model.plugins_.push_back(std::move(plugin));
+          }
+
+          pluginChainPanel_.lbxPluginChain_.updateContent();
+          pluginChainPanel_.lbxPluginChain_.repaint();
+        });
+    },
+    TIMEOUT_NORMAL);
 }
 
 void MainComponent::bypassPlugin(PluginID runtime_id, bool bypass)
@@ -271,6 +284,78 @@ void MainComponent::removePlugin(PluginID runtime_id)
       });     
     },
     TIMEOUT_NORMAL);
+}
+
+void MainComponent::rescanPluginList()
+{
+  sidebar_.btnRescanPluginList_.setToggleState(true, juce::dontSendNotification);
+  sidebar_.btnRescanPluginList_.setEnabled(false);
+
+  msg::Rescan command {};
+  auto payload = msg::to_bytes(command);
+  request_manager_.postRequest(
+    msg::Type::req_rescan, std::move(payload),
+    [this](Frame frame)
+    {
+      if(frame.header.msg_type != (size_t) msg::Type::res_completed)
+        return;
+
+      msg::Query command { msg::query_subject::plugin_list };
+      auto payload = to_bytes(command);
+      request_manager_.postRequest(
+        msg::Type::req_query, std::move(payload),
+        [this](Frame frame)
+        {
+          if(frame.header.msg_type != (size_t) msg::Type::res_query_plugins)
+            return;
+
+          auto list = msg::from_bytes<msg::ListPlugins>(frame.payload);
+
+          juce::MessageManager::callAsync(
+            [this, list = std::move(list)] mutable
+            { 
+              std::swap(plugin_list_, list.plugins);
+              sidebar_.btnRescanPluginList_.setToggleState(false, juce::dontSendNotification);
+              sidebar_.btnRescanPluginList_.setEnabled(true);
+            });
+        },
+        TIMEOUT_NORMAL);
+    },
+    TIMEOUT_LONG);
+}
+
+void MainComponent::openPluginSelector()
+{
+  juce::DialogWindow::LaunchOptions options;
+
+  options.content.setOwned(new PluginSelector(
+    plugin_list_,
+    [this](std::optional<size_t> plugin_id)
+    {
+      if(!plugin_id.has_value())
+        return;
+
+      msg::AddPlugin command {*plugin_id, -1};
+      auto payload = msg::to_bytes(command);
+      request_manager_.postRequest(
+        msg::Type::req_add_plugin, std::move(payload),
+        [this](Frame frame)
+        {
+          if(frame.header.msg_type != (size_t) msg::Type::res_completed)
+            return;
+
+          updateActiveChain();
+        },
+        TIMEOUT_NORMAL);
+    }
+  ));
+
+  options.dialogTitle = "Select Plugin";
+  options.componentToCentreAround = this;
+  options.escapeKeyTriggersCloseButton = true;
+  options.resizable = true;
+
+  options.launchAsync();
 }
 
 } // namespace mitmegy

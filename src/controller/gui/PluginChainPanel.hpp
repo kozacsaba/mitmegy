@@ -34,8 +34,8 @@ public:
   std::function<void(PluginID, int)> moveDownClicked_;
   std::function<void(PluginID)> removeClicked_;
 
-  std::function<void()> itemSingleClicked_; // open gui
-  std::function<void()> itemDoubleClicked_; // rename slot (?)
+  std::function<void(PluginID)> itemSingleClicked_; // open gui
+  std::function<void(PluginID)> itemDoubleClicked_; // rename slot (?)
 
   std::vector<Element> plugins_;
 }; // PluginListModel
@@ -73,6 +73,7 @@ public:
   juce::Label lblActiveChain_;
   juce::ListBox lbxPluginChain_;
   PluginListModel listModel_;
+  juce::TextButton btnAddPlugin_;
 }; // PluginChainPanel
 
 } // namespace mitmegy

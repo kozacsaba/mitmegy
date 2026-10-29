@@ -13,6 +13,8 @@ Sidebar::Sidebar()
   btnShowLogs_.setButtonText("Logs");
   btnRescanPluginList_.setButtonText("Rescan Plugins");
 
+  btnRescanPluginList_.setClickingTogglesState(false);
+
   addAndMakeVisible(btnSavePreset_);
   addAndMakeVisible(btnLoadPreset_);
   addAndMakeVisible(btnSearchPaths_);

@@ -47,13 +47,13 @@ juce::Component* PluginListModel::refreshComponentForRow(int rowNumber, bool isR
 void PluginListModel::listBoxItemClicked(int row, const juce::MouseEvent& e)
 {
   if(itemSingleClicked_)
-    itemSingleClicked_();
+    itemSingleClicked_(plugins_[row].runtime_id);
 }
 
 void PluginListModel::listBoxItemDoubleClicked(int row, const juce::MouseEvent& e)
 {
   if(itemDoubleClicked_)
-    itemDoubleClicked_();
+    itemDoubleClicked_(plugins_[row].runtime_id);
 }
 
 // PluginSlot
@@ -116,16 +116,20 @@ PluginChainPanel::PluginChainPanel()
 {
   lblActiveChain_.setText("Active Chain", juce::dontSendNotification);
   lbxPluginChain_.setModel(&listModel_);
+  btnAddPlugin_.setButtonText("Add Plugin");
 
   addAndMakeVisible(lblActiveChain_);
   addAndMakeVisible(lbxPluginChain_);
+  addAndMakeVisible(btnAddPlugin_);
 }
 
 void PluginChainPanel::resized()
 {
   auto area = getLocalBounds();
+  const int buttonHeight = area.proportionOfHeight(0.2f);
 
-  lblActiveChain_.setBounds(area.removeFromTop(area.proportionOfHeight(0.2f)));
+  lblActiveChain_.setBounds(area.removeFromTop(buttonHeight));
+  btnAddPlugin_.setBounds(area.removeFromBottom(buttonHeight));
   lbxPluginChain_.setBounds(area);
 }
 

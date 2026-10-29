@@ -1,19 +1,16 @@
 #pragma once
 
-#include "AudioDevicePanel.hpp"
-#include "PluginChainPanel.hpp"
-#include "Sidebar.hpp"
+#include "gui/AudioDevicePanel.hpp"
+#include "gui/PluginChainPanel.hpp"
+#include "gui/Sidebar.hpp"
+#include "protocol/messages.hpp"
 
 #include <juce_gui_basics/juce_gui_basics.h>
 
+#include <vector>
+
 namespace mitmegy
 {
-
-namespace msg
-{
-  struct ListDevices;
-  struct ListChain;
-} // namespace msg
 
 class RequestManager;
 
@@ -39,10 +36,16 @@ private:
   void updateAudioDeviceList(const msg::ListDevices& list);
   void audioDeviceSelected();
 
-  void updateActiveChain(const msg::ListChain& list);
+  void updateActiveChain();
   void bypassPlugin(PluginID runtime_id, bool bypass);
   void movePlugin(PluginID runtime_id, int old_index, bool up_one);
   void removePlugin(PluginID runtime_id);
+
+  void rescanPluginList();
+
+  void openPluginSelector();
+
+  std::vector<msg::plugin_full_desc> plugin_list_;
 };
 
 } // namespace mitmegy
