@@ -56,3 +56,8 @@ Priority: **P0 / P1 / P2 / P3**
 24. **Mix Format Compatibility**
     - Do not assume AudioSink's shared-mode mix format is always stereo 48 kHz IEEE float32
     - Validate the format at startup and later support other AudioSink PCM/mix formats through input conversion.
+
+25. **Worker thread stop on no audio throughput**
+    - There are some tasks that are scheduled by the worker thread but are not processed on it. Instead the are prepared and a key element / action requested from the audio thread to ensure that the audio thread does not wait on the worker
+    - Such tasks will wait indefinitely if there is no audio input / output
+    - Establish a system in which the worker has a timeout and can cancel a scheduled task if the audio thread is not doing its part

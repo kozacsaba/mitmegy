@@ -9,7 +9,8 @@ namespace mitmegy
 {
 
 MessageHandler::MessageHandler()
-  : running_(false)
+  : frame_handler_(nullptr)
+  , running_(false)
 {}
 
 MessageHandler::~MessageHandler()
@@ -39,6 +40,67 @@ void MessageHandler::stop()
   if(thread_.joinable())
     thread_.join();
 }
+
+bool MessageHandler::sendFrame(const Frame& frame)
+{
+  const auto packet = serializeFrame(frame);
+  return connection_->writeAll(packet);
+}
+
+void MessageHandler::setMessageHandler(FrameHandler handler)
+{
+  std::scoped_lock lock(frame_handler_mut_);
+  frame_handler_ = handler;
+}
+
+void MessageHandler::worker()
+{
+  std::vector<uint8_t> buffer;
+  buffer.resize(4096);
+  std::optional<size_t> bytes_received = 0;
+
+  while(running_)
+  {
+    { // lock connection
+      std::scoped_lock lock(connection_mut_);
+      connection_ = client_.connect(PIPENAME);
+      if(!connection_)
+        throw std::runtime_error("Server not available for named pipe");
+    } // lock connection
+
+    while((bytes_received = connection_->readSome(buffer)).has_value())
+    {
+      const size_t received = bytes_received.value();
+      if(received == 0)
+        continue;
+
+      framer_.pushBytes({buffer.data(), received});
+
+      FrameHandler handler_;
+      { // lock frame handler
+        std::scoped_lock lock(frame_handler_mut_);
+        handler_ = frame_handler_;
+      } // lock frame handler
+
+      std::optional<Frame> frame;
+      while((frame = framer_.getFrame()).has_value())
+        if(handler_)
+          handler_(std::move(frame.value()));
+    }
+
+    { // lock connection
+      std::scoped_lock lock(connection_mut_);
+      connection_ = std::nullopt;
+    } // lock connection
+  }
+}
+
+void MessageHandler::log(const std::string& msg)
+{
+  std::cout << msg << std::endl;
+}
+
+/*
 
 void MessageHandler::processFrame(const Frame& frame)
 {
@@ -78,59 +140,6 @@ void MessageHandler::processFrame(const Frame& frame)
   {
     log("Error in processing a frame: " + std::string(e.what()));
   }
-}
-
-void MessageHandler::worker()
-{
-  std::vector<uint8_t> buffer;
-  buffer.resize(4096);
-  std::optional<size_t> bytes_received = 0;
-
-  while(running_)
-  {
-    { // lock connection
-      std::scoped_lock lock(connection_mut_);
-      connection_ = client_.connect(PIPENAME);
-      if(!connection_)
-        throw std::runtime_error("Server not available for named pipe");
-    } // lock connection
-
-    while((bytes_received = connection_->readSome(buffer)).has_value())
-    {
-      const size_t received = bytes_received.value();
-      if(received == 0)
-        continue;
-
-      framer_.pushBytes({buffer.data(), received});
-
-      std::optional<Frame> frame;
-      while((frame = framer_.getFrame()).has_value())
-        processFrame(frame.value());
-    }
-
-    { // lock connection
-      std::scoped_lock lock(connection_mut_);
-      connection_ = std::nullopt;
-    } // lock connection
-  }
-}
-
-void MessageHandler::log(const std::string& msg)
-{
-  std::cout << msg << std::endl;
-}
-
-void MessageHandler::sendMessage(std::vector<uint8_t>&& payload, size_t type)
-{
-  Frame frame;
-  frame.payload = std::move(payload);
-  frame.header.id = global_id_++;
-  frame.header.length = frame.payload.size();
-  frame.header.msg_type = type;
-  frame.header.version = VERSION;
-
-  const auto packet = serializeFrame(frame);
-  connection_->writeAll(packet);
 }
 
 // MARK: sends
@@ -304,5 +313,7 @@ void MessageHandler::handle_failed_scans(size_t id, const std::vector<uint8_t>& 
   }
   std::cout << "\n" << std::endl;
 }
+
+*/
 
 } // mitmegy

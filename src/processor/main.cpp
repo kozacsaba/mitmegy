@@ -1,5 +1,6 @@
 #include "Engine.hpp"
 #include "MessageHandler.hpp"
+#include "GuiManager.hpp"
 
 #include "vsthost/PluginChain.hpp"
 #include "vsthost/PluginRegistry.hpp"
@@ -44,6 +45,7 @@ int wmain(int argc, wchar_t* argv[])
     mitmegy::Engine engine{};
     mitmegy::PluginRegistry registry;
     mitmegy::PluginChain plugin_chain;
+    mitmegy::GuiManager gui_manager;
 
     // restore last session / snapshot
     
@@ -67,13 +69,15 @@ int wmain(int argc, wchar_t* argv[])
     const auto format = engine.getInputFormat();
     plugin_chain.configure(format.nSamplesPerSec, engine.maxBlockSize());
 
-    mitmegy::MessageHandler handler(engine, plugin_chain, registry);
+    mitmegy::MessageHandler handler(engine, plugin_chain, registry, gui_manager);
 
     engine.start();
     handler.start();
+    gui_manager.start();
 
     g_running.wait(true);
 
+    gui_manager.stop();
     handler.stop();
     engine.stop();
 

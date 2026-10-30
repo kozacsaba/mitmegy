@@ -1,5 +1,7 @@
 #pragma once
 
+#include "GuiManager.hpp"
+
 #include "protocol/NamedPipe.hpp"
 #include "protocol/Frame.hpp"
 #include "vsthost/PluginRegistry.hpp"
@@ -18,7 +20,7 @@ class PluginChain;
 class MessageHandler
 {
 public:
-  MessageHandler(Engine& engine, PluginChain& chain, PluginRegistry& registry);
+  MessageHandler(Engine& engine, PluginChain& chain, PluginRegistry& registry, GuiManager& gui_manager);
   ~MessageHandler();
 
   void start();
@@ -58,6 +60,8 @@ private:
   Engine& engine_;
   PluginChain& chain_;
   PluginRegistry& registry_;
+  GuiManager& gui_manager_;
+  
   std::unordered_map<size_t, juce::PluginDescription> scannedPlugins_;
   size_t global_plugin_id_ = 0;
 

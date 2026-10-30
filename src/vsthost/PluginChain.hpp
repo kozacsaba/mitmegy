@@ -5,6 +5,7 @@
 #include <cstddef>
 #include <memory>
 #include <vector>
+#include <functional>
 
 namespace mitmegy
 {
@@ -68,6 +69,8 @@ public:
   const std::string display_name_;
   const juce::String IdentifierString_; // used for creating the same plugin in another sesison
   std::atomic<bool> bypassed_ = true;
+
+  std::function<void()> beforeDestruction_; // this is for closing gui
 
 private:
   inline static PluginID global_id_ = 0;

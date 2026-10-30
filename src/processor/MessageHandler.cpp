@@ -59,10 +59,11 @@ std::string narrow(std::wstring_view str)
 namespace mitmegy
 {
 
-MessageHandler::MessageHandler(Engine& engine, PluginChain& chain, PluginRegistry& registry)
+MessageHandler::MessageHandler(Engine& engine, PluginChain& chain, PluginRegistry& registry, GuiManager& gui_manager)
   : engine_(engine)
   , chain_(chain)
   , registry_(registry)
+  , gui_manager_(gui_manager)
   , server_(PIPENAME)
   , running_(false)
 {}
@@ -326,7 +327,19 @@ void MessageHandler::handle_move_plugin(size_t id, const std::vector<uint8_t>& p
 
 void MessageHandler::handle_open_gui(size_t id, const std::vector<uint8_t>& pl)
 {
-  // TODO: a lot...
+  using namespace msg;
+  const OpenGui request = from_bytes<OpenGui>(pl);
+
+  auto plugin = chain_.plugin_id(request.id);
+  if(plugin == nullptr)
+    throw std::runtime_error("Invalid plugin id");
+
+  plugin->beforeDestruction_ = [this, plugin_ptr = plugin.get()]()
+  { gui_manager_.close(plugin_ptr); };
+  
+  gui_manager_.open(plugin.get());
+
+  sendSuccess(id);
 }
 
 void MessageHandler::handle_rescan(size_t id, const std::vector<uint8_t>& pl)
