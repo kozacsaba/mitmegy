@@ -174,10 +174,10 @@ void MainComponent::audioDeviceSelected()
       if(frame.header.msg_type != (size_t) msg::Type::res_completed)
         id = NoneSelectedID; // deselect on failure
 
-      juce::MessageManager::callAsync([&]()
+      juce::MessageManager::callAsync([&, id]()
       { audioDevicePanel_.cbxDeviceSelector_.setSelectedId(id, juce::dontSendNotification); });
     },
-    TIMEOUT_NORMAL);
+    TIMEOUT_MEDIUM);
 }
 
 void MainComponent::updateActiveChain()
@@ -224,7 +224,14 @@ void MainComponent::bypassPlugin(PluginID runtime_id, bool bypass)
   msg::BypassPlugin command { runtime_id, bypass };
   auto payload = msg::to_bytes(command);
 
-  request_manager_.postRequest(msg::Type::req_bypass_plugin, std::move(payload), nullptr, TIMEOUT_NORMAL);
+  request_manager_.postRequest(
+    msg::Type::req_bypass_plugin, std::move(payload),
+    [this](Frame)
+    {
+      // TODO: log here too i guess
+      updateActiveChain();
+    },
+    TIMEOUT_NORMAL);
 }
 
 void MainComponent::movePlugin(PluginID runtime_id, int old_index, bool up_one)
@@ -238,21 +245,9 @@ void MainComponent::movePlugin(PluginID runtime_id, int old_index, bool up_one)
 
   request_manager_.postRequest(
     msg::Type::req_move_plugin, std::move(payload),
-    [this, old_index, new_index](Frame frame)
+    [this](Frame)
     {
-      if(frame.header.msg_type != (size_t) msg::Type::res_completed)
-        return;
-
-      juce::MessageManager::callAsync([this, old_index, new_index]
-      {
-        const auto first = pluginChainPanel_.listModel_.plugins_.begin();
-        auto old_place = first + old_index;
-        auto new_place = first + new_index;
-        std::iter_swap(old_place, new_place);
-
-        pluginChainPanel_.lbxPluginChain_.updateContent();
-        pluginChainPanel_.lbxPluginChain_.repaint();
-      });
+      updateActiveChain();
     },
     TIMEOUT_NORMAL
   );
@@ -365,7 +360,7 @@ void MainComponent::openPluginSelector()
           // if(frame.header.msg_type != (size_t) msg::Type::res_completed) log what happened
           updateActiveChain();
         },
-        5'000);
+        TIMEOUT_MEDIUM);
     }
   ));
 

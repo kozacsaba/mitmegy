@@ -65,6 +65,8 @@ void PluginListModel::listBoxItemDoubleClicked(int row, const juce::MouseEvent& 
 PluginSlot::PluginSlot(PluginListModel& model)
   : model_(model)
 {
+  setInterceptsMouseClicks(false, true);
+
   btnActive_.onClick = [&]()
   {
     if(model_.bypassClicked_)
@@ -87,6 +89,7 @@ PluginSlot::PluginSlot(PluginListModel& model)
   };
 
   lblPluginName_.setEditable(false);
+  lblPluginName_.setInterceptsMouseClicks(false, false);
   btnMoveUp_.setButtonText("/\\");
   btnMoveDown_.setButtonText("\\/");
   btnRemove_.setButtonText("X");
