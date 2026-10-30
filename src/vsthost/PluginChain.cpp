@@ -1,6 +1,7 @@
 #include "PluginChain.hpp"
 
 #include <stdexcept>
+#include <chrono>
 
 namespace
 {
@@ -19,6 +20,31 @@ std::string getDisplayName(const juce::AudioPluginInstance* instance)
     throw std::runtime_error("Cannot create display name from nullptr AudioPluginInstance");
   const auto description = instance->getPluginDescription();
   return description.name.toStdString();
+}
+
+bool waitForSwitch(std::atomic<mitmegy::PluginChain::SwitchState>& state, size_t timeout_ms = 150)
+{
+  using State = mitmegy::PluginChain::SwitchState;
+  const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout_ms);
+
+  while(state != State::idle)
+  {
+    auto now = std::chrono::steady_clock::now();
+
+    if(deadline < now)
+    {
+      auto expected = State::pending;
+      const bool aborted = state.compare_exchange_strong(
+        expected, State::idle, std::memory_order_acquire);
+      
+      if(aborted)
+        return false;
+    }
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  }
+
+  return true;
 }
 
 } // namespace
@@ -81,11 +107,12 @@ void PluginChain::processBlock(juce::AudioBuffer<float>& buffer)
   if(maxBlockSize_ == 0)
     throw std::runtime_error("PluginChain: Cannot call process: not prepared");
 
-  if(switch_request_)
+  auto expected = SwitchState::pending;
+  if (switch_request_.compare_exchange_strong(
+    expected, SwitchState::in_progress, std::memory_order_acquire))
   {
     stage_ = live_.exchange(stage_);
-    switch_request_ = false;
-    switch_request_.notify_all();
+    switch_request_.store(SwitchState::idle, std::memory_order_release);
   }
 
   for(auto& plugin : *live_)
@@ -129,9 +156,8 @@ void PluginChain::add(int index, std::unique_ptr<juce::AudioPluginInstance>&& in
     stage_.load()->insert(it+index, plugin);
   }
 
-  switch_request_ = true;
-  switch_request_.wait(true);
-  // wait for processBlock to switch
+  switch_request_ = SwitchState::pending;
+  waitForSwitch(switch_request_);
 
   try
   {
@@ -164,9 +190,8 @@ void PluginChain::remove(PluginID id)
 
   stage->erase(it);
 
-  switch_request_ = true;
-  switch_request_.wait(true);
-  // wait for processBlock to switch
+  switch_request_ = SwitchState::pending;
+  waitForSwitch(switch_request_);
 
   try
   {
@@ -212,9 +237,8 @@ void PluginChain::move(PluginID id, size_t index)
   else if (it_from > it_to)
     std::rotate(it_to, it_from, it_from + 1);
 
-  switch_request_ = true;
-  switch_request_.wait(true);
-  // wait for processBlock to switch
+  switch_request_ = SwitchState::pending;
+  waitForSwitch(switch_request_);
 
   try
   {

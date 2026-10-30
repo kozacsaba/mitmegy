@@ -16,6 +16,13 @@ public:
   struct Plugin;
   using PluginID = size_t;
 
+  enum class SwitchState
+  {
+    idle,       // audio thread must not touch
+    pending,    // safe to begin switch or abort
+    in_progress // worker thread does not touch
+  }; // SwitchState
+
   PluginChain();
   ~PluginChain();
 
@@ -46,7 +53,7 @@ private:
   double sampleRate_ = 0.0;
   int maxBlockSize_ = 0;
 
-  std::atomic<bool> switch_request_ = false;
+  std::atomic<SwitchState> switch_request_ = SwitchState::idle;
   using Chain = std::vector<std::shared_ptr<Plugin>>;
 
   Chain chain_a_;
