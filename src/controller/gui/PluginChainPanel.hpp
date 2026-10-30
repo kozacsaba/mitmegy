@@ -70,9 +70,10 @@ public:
   void resized() override;
   void paint(juce::Graphics& g) override;
 
+  PluginListModel listModel_;
+
   juce::Label lblActiveChain_;
   juce::ListBox lbxPluginChain_;
-  PluginListModel listModel_;
   juce::TextButton btnAddPlugin_;
 }; // PluginChainPanel
 

@@ -53,8 +53,8 @@ void ControllerApp::initialise(const juce::String&)
 void ControllerApp::shutdown()
 {
   main_window_.reset();
-  message_handler_.stop();
   request_manager_.stop();
+  message_handler_.stop();
 }
 
 void ControllerApp::systemRequestedQuit()

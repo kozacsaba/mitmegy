@@ -185,11 +185,14 @@ void MainComponent::updateActiveChain()
   msg::Query command { msg::query_subject::active_chain };
   auto payload = msg::to_bytes(command);
   request_manager_.postRequest(
-    msg::Type::res_query_chain, std::move(payload),
+    msg::Type::req_query, std::move(payload),
     [&](Frame frame)
     {
       if(frame.header.msg_type != (size_t) msg::Type::res_query_chain)
+      {
+        jassertfalse;
         return;
+      }
 
       auto list = msg::from_bytes<msg::ListChain>(frame.payload);
       juce::MessageManager::callAsync(
@@ -297,8 +300,18 @@ void MainComponent::rescanPluginList()
     msg::Type::req_rescan, std::move(payload),
     [this](Frame frame)
     {
-      if(frame.header.msg_type != (size_t) msg::Type::res_completed)
+      if(frame.header.msg_type != (size_t) msg::Type::res_failed_plugins)
+      {
+        // rescan failed
+        juce::MessageManager::callAsync([this]
+        {
+          sidebar_.btnRescanPluginList_.setToggleState(false, juce::dontSendNotification);
+          sidebar_.btnRescanPluginList_.setEnabled(true);
+        });
         return;
+      }
+
+      // TODO: process failed plugins somehow
 
       msg::Query command { msg::query_subject::plugin_list };
       auto payload = to_bytes(command);
@@ -307,7 +320,15 @@ void MainComponent::rescanPluginList()
         [this](Frame frame)
         {
           if(frame.header.msg_type != (size_t) msg::Type::res_query_plugins)
+          {
+            // plugin list query failed
+            juce::MessageManager::callAsync([this]
+            {
+              sidebar_.btnRescanPluginList_.setToggleState(false, juce::dontSendNotification);
+              sidebar_.btnRescanPluginList_.setEnabled(true);
+            });
             return;
+          }
 
           auto list = msg::from_bytes<msg::ListPlugins>(frame.payload);
 
@@ -341,12 +362,10 @@ void MainComponent::openPluginSelector()
         msg::Type::req_add_plugin, std::move(payload),
         [this](Frame frame)
         {
-          if(frame.header.msg_type != (size_t) msg::Type::res_completed)
-            return;
-
+          // if(frame.header.msg_type != (size_t) msg::Type::res_completed) log what happened
           updateActiveChain();
         },
-        TIMEOUT_NORMAL);
+        5'000);
     }
   ));
 

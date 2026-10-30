@@ -54,6 +54,7 @@ RequestManager::RequestManager(MessageHandler& messageHandler)
       Request req;
       
       { // lock req
+        std::scoped_lock lock(req_mut_);
         if(!requests_.contains(id))
           return;
 
@@ -126,7 +127,8 @@ void RequestManager::postRequest(
       if(!requests_.contains(id))
         return;
 
-      req = requests_[id];
+      req = std::move(requests_.at(id));
+      requests_.erase(id);
     } // lock req
 
     completeNotSent(req);
@@ -175,13 +177,17 @@ void RequestManager::taskWorker()
 
       { // lock req
         std::scoped_lock lock(req_mut_);
-        expired_requests.resize(requests_.size());
-        for(auto& [id, req] : requests_)
+        expired_requests.reserve(requests_.size());
+        for (auto it = requests_.begin(); it != requests_.end();)
         {
-          if(req.deadline < now)
+          if (it->second.deadline < now)
           {
-            expired_requests.push_back(std::move(requests_[id]));
-            requests_.erase(id);
+            expired_requests.push_back(std::move(it->second));
+            it = requests_.erase(it);
+          }
+          else
+          {
+            ++it;
           }
         }
       } // lock req

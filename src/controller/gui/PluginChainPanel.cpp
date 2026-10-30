@@ -22,8 +22,12 @@ void PluginListModel::paintListBoxItem(int rowNumber, juce::Graphics& g, int wid
 
 juce::Component* PluginListModel::refreshComponentForRow(int rowNumber, bool isRowSelected, juce::Component* existingComponentToUpdate)
 {
-  if(rowNumber >= plugins_.size())
-    throw std::out_of_range("refreshComponentForRow rowNumber out of range for model's plugins_ vector");
+  if(!juce::isPositiveAndBelow(rowNumber, getNumRows()))
+  {
+    if(existingComponentToUpdate != nullptr)
+      delete existingComponentToUpdate;
+    return nullptr;
+  }
 
   juce::ignoreUnused(isRowSelected);
 

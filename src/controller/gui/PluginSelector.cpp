@@ -13,6 +13,7 @@ PluginSelector::PluginSelector(std::vector<msg::plugin_full_desc> plugins, Resul
   addAndMakeVisible(listBox_);
 
   btnCancel_.onClick = [this](){ finish(std::nullopt); };
+  btnCancel_.setButtonText("Cancel");
   addAndMakeVisible(btnCancel_);
 
   btnOpen_.onClick = [this]()
@@ -23,6 +24,7 @@ PluginSelector::PluginSelector(std::vector<msg::plugin_full_desc> plugins, Resul
     else
       accept(row);
   };
+  btnOpen_.setButtonText("Open");
   addAndMakeVisible(btnOpen_);
 
   setSize(350, 450);
