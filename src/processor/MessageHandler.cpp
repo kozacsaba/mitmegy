@@ -334,6 +334,9 @@ void MessageHandler::handle_open_gui(size_t id, const std::vector<uint8_t>& pl)
   if(plugin == nullptr)
     throw std::runtime_error("Invalid plugin id");
 
+  plugin->beforeDestruction_ = [this, plugin_ptr = plugin.get()]()
+  { gui_manager_.close(plugin_ptr); };
+  
   gui_manager_.open(plugin.get());
 
   sendSuccess(id);

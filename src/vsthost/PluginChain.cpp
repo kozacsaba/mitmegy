@@ -41,6 +41,17 @@ PluginChain::Plugin::Plugin(
 
 PluginChain::Plugin::~Plugin()
 {
+  try
+  {
+    if(beforeDestruction_)
+      beforeDestruction_();
+  }
+  catch (...)
+  {
+    // Do investigate please. Reaching this is very unhealthy.
+    jassertfalse;
+  }
+
   bypassed_ = true;
   instance_->releaseResources();
   instance_ = nullptr;
