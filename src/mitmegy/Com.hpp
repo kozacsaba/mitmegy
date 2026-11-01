@@ -4,7 +4,7 @@
   #define NOMINMAX
 #endif
 
-#include <windows.h>
+#include <objbase.h>
 
 namespace mitmegy
 {

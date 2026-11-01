@@ -6,14 +6,15 @@
 
 #include "AudioFifo.hpp"
 
-#include <windows.h>
 #include <audioclient.h>
+#include <handleapi.h>
 #include <wrl/client.h>
 
 #include <cstddef>
 #include <memory>
 #include <string>
 #include <vector>
+#include <stdexcept>
 
 namespace mitmegy
 {
