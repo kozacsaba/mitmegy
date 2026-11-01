@@ -1,10 +1,10 @@
 #include "AudioEngine.hpp"
 
+#include <system_error>
+
 #include <algorithm>
-#include <chrono>
 #include <cmath>
 #include <stdexcept>
-#include <thread>
 #include <utility>
 
 namespace mitmegy
@@ -20,14 +20,17 @@ void TransportStats::observeFifo(const AudioFifo& fifo)
 }
 
 AudioEngine::AudioEngine(const Endpoint& audio_sink, const Endpoint& output)
-  : capture_(audio_sink)
-  , fifo_(capture_.channels(), capture_.sampleRate())
-  , render_(output, capture_.format())
+  : audio_sink_(audio_sink)
+  , output_(output)
+  , control_event_(createEvent())
+  , capture_(std::make_unique<WasapiCapture>(audio_sink_))
+  , fifo_(std::make_unique<AudioFifo>(capture_->channels(), capture_->sampleRate()))
+  , render_(std::make_unique<WasapiRender>(output_, capture_->format()))
 {
-  if (capture_.sampleFormat() != SampleFormat::Float32)
+  if (capture_->sampleFormat() != SampleFormat::Float32)
     throw std::runtime_error("Current engine only supports 32-bit float AudioSink input");
 
-  if (capture_.format().nBlockAlign != capture_.format().nChannels * sizeof(float))
+  if (capture_->format().nBlockAlign != capture_->format().nChannels * sizeof(float))
     throw std::runtime_error("Unexpected AudioSink float frame layout");
 }
 
@@ -38,22 +41,22 @@ const TransportStats& AudioEngine::stats() const
 
 const WAVEFORMATEX& AudioEngine::inputFormat() const
 {
-  return capture_.format();
+  return capture_->format();
 }
 
 SampleFormat AudioEngine::inputSampleFormat() const
 {
-  return capture_.sampleFormat();
+  return capture_->sampleFormat();
 }
 
 size_t AudioEngine::maxBlockSize() const
 {
-  return render_.bufferFrames();
+  return render_->bufferFrames();
 }
 
 void AudioEngine::capturePacket()
 {
-  const CaptureResult result = capture_.captureInto(fifo_);
+  const CaptureResult result = capture_->captureInto(*fifo_);
   stats_.captured_frames += result.captured_frames;
 
   if (result.discontinuity)
@@ -65,30 +68,42 @@ void AudioEngine::capturePacket()
     stats_.dropped_frames += result.captured_frames - result.written_frames;
   }
 
-  stats_.observeFifo(fifo_);
+  stats_.observeFifo(*fifo_);
 }
 
-void AudioEngine::prefill(const std::atomic_bool& running)
+void AudioEngine::prefill()
 {
   constexpr size_t prefill_ms = 50;
+  const size_t target_frames = capture_->sampleRate() * prefill_ms / 1000;
+  const HANDLE events[] = {control_event_.get(), capture_->eventHandle()};
 
-  const size_t target_frames = capture_.sampleRate() * prefill_ms / 1000;
-
-  while (running.load(std::memory_order_relaxed) && fifo_.readableFrames() < target_frames)
+  while (!stop_requested_.load(std::memory_order_acquire) && 
+         fifo_->readableFrames() < target_frames)
   {
-    size_t packet_frames = capture_.nextPacketFrames();
-
-    if (packet_frames == 0)
-    {
-      std::this_thread::sleep_for(std::chrono::milliseconds(1));
-      continue;
-    }
-
-    while (packet_frames > 0 && fifo_.readableFrames() < target_frames)
+    while (!stop_requested_.load(std::memory_order_acquire) &&
+           fifo_->readableFrames() < target_frames &&
+           capture_->nextPacketFrames() > 0)
     {
       capturePacket();
-      packet_frames = capture_.nextPacketFrames();
     }
+
+    if (stop_requested_.load(std::memory_order_acquire) ||
+        fifo_->readableFrames() >= target_frames)
+      break;
+
+    const DWORD result = ::WaitForMultipleObjects(2, events, FALSE, INFINITE);
+
+    if (result == WAIT_OBJECT_0)
+      return;
+
+    if (result == WAIT_OBJECT_0 + 1)
+      continue;
+
+    if (result == WAIT_FAILED)
+      throw std::system_error(static_cast<int>(::GetLastError()),
+                              std::system_category(), "Prefill wait failed");
+
+    throw std::runtime_error("Unexpected prefill wait result");
   }
 }
 
@@ -123,18 +138,18 @@ void AudioEngine::guardOutput(AudioFifo::ReadView& view, size_t frames)
 
 bool AudioEngine::renderFromFifo()
 {
-  const size_t padding = render_.paddingFrames();
-  if (padding == 0 && fifo_.readableFrames() == 0)
+  const size_t padding = render_->paddingFrames();
+  if (padding == 0 && fifo_->readableFrames() == 0)
   {
     ++stats_.underruns;
     return false;
   }
 
-  const size_t available_frames = render_.bufferFrames() - padding;
+  const size_t available_frames = render_->bufferFrames() - padding;
   if (available_frames == 0)
     return false;
 
-  auto view = fifo_.acquireRead();
+  auto view = fifo_->acquireRead();
   if (!view)
     return false;
 
@@ -143,66 +158,96 @@ bool AudioEngine::renderFromFifo()
   if (process_)
     process_(view, frames);
   guardOutput(view, frames);
-  render_.write(view, frames);
+  render_->write(view, frames);
 
   view.consume(frames);
   stats_.rendered_frames += frames;
-  stats_.observeFifo(fifo_);
+  stats_.observeFifo(*fifo_);
 
   return true;
 }
 
-void AudioEngine::runLoop(const std::atomic_bool& running)
+void AudioEngine::runLoop()
 {
-  while (running.load(std::memory_order_relaxed))
-  {
-    bool did_work = false;
+  const HANDLE events[] = {control_event_.get(), capture_->eventHandle(), render_->eventHandle()};
 
-    size_t packet_frames = capture_.nextPacketFrames();
-    while (packet_frames > 0)
+  while (!stop_requested_.load(std::memory_order_acquire))
+  {
+    const DWORD result = ::WaitForMultipleObjects(3, events, FALSE, INFINITE);
+
+    if (result == WAIT_OBJECT_0)
+      return;
+
+    if (result == WAIT_OBJECT_0 + 1)
     {
-      capturePacket();
-      did_work = true;
-      packet_frames = capture_.nextPacketFrames();
+      while (!stop_requested_.load(std::memory_order_acquire) &&
+             capture_->nextPacketFrames() > 0)
+      {
+        capturePacket();
+      }
+
+      continue;
     }
 
-    if (renderFromFifo())
-      did_work = true;
+    if (result == WAIT_OBJECT_0 + 2)
+    {
+      while (!stop_requested_.load(std::memory_order_acquire) && renderFromFifo()) {}
+      continue;
+    }
 
-    if (!did_work)
-      std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    if (result == WAIT_FAILED)
+      throw std::system_error(static_cast<int>(::GetLastError()),
+                              std::system_category(), "Audio event wait failed");
+
+    throw std::runtime_error("Unexpected audio event wait result");
   }
 }
 
-void AudioEngine::run(const std::atomic_bool& running)
+void AudioEngine::run()
 {
-  fifo_.reset();
+  if (stop_requested_.load(std::memory_order_acquire))
+    return;
+
+  fifo_->reset();
 
   stats_ = {};
-  stats_.observeFifo(fifo_);
+  stats_.observeFifo(*fifo_);
 
-  capture_.start();
+  capture_->start();
 
   try
   {
-    prefill(running);
-    if (running.load(std::memory_order_relaxed))
+    prefill();
+
+    if (!stop_requested_.load(std::memory_order_acquire))
     {
       // Prime the render buffer before its clock starts.
-      renderFromFifo();
-      render_.start();
-      runLoop(running);
+      while (!stop_requested_.load(std::memory_order_acquire) &&
+             renderFromFifo())
+      {}
+
+      if (!stop_requested_.load(std::memory_order_acquire))
+      {
+        render_->start();
+        runLoop();
+      }
     }
   }
   catch (...)
   {
-    render_.stop();
-    capture_.stop();
+    render_->stop();
+    capture_->stop();
     throw;
   }
 
-  render_.stop();
-  capture_.stop();
+  render_->stop();
+  capture_->stop();
+}
+
+void AudioEngine::requestStop() noexcept
+{
+  stop_requested_.store(true, std::memory_order_release);
+  ::SetEvent(control_event_.get());
 }
 
 } // namespace mitmegy

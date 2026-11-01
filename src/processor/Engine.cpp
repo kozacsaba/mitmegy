@@ -85,13 +85,15 @@ void Engine::start()
   if(engine_ == nullptr)
     return;
 
-  thread_ = std::thread([this](){ engine_->run(running_); });
+  thread_ = std::thread([this](){ engine_->run(); });
 }
 
 void Engine::stop()
 {
   if(!running_.exchange(false))
     return;
+
+  engine_->requestStop();
 
   if(thread_.joinable())
     thread_.join();

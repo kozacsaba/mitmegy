@@ -1,5 +1,9 @@
 #pragma once
 
+#ifndef NOMINMAX
+  #define NOMINMAX
+#endif
+
 #include "AudioFifo.hpp"
 
 #include <windows.h>
@@ -13,6 +17,28 @@
 
 namespace mitmegy
 {
+
+class WasapiError : public std::runtime_error
+{
+public:
+  WasapiError(std::string message, HRESULT hr);
+  HRESULT hresult() const noexcept;
+
+private:
+  HRESULT hr_;
+};
+
+struct HandleCloser
+{
+  void operator()(HANDLE handle) const noexcept
+  {
+    if (handle) ::CloseHandle(handle);
+  }
+};
+
+using UniqueHandle = std::unique_ptr<void, HandleCloser>;
+
+UniqueHandle createEvent();
 
 struct Endpoint
 {
@@ -55,6 +81,7 @@ public:
 
   const WAVEFORMATEX& format() const;
   SampleFormat sampleFormat() const;
+  HANDLE eventHandle() const noexcept;
 
   size_t channels() const;
   size_t sampleRate() const;
@@ -68,6 +95,7 @@ public:
 private:
   size_t writeSilence(AudioFifo& fifo, size_t frames);
 
+  UniqueHandle event_;
   Microsoft::WRL::ComPtr<IAudioClient> audio_client_;
   Microsoft::WRL::ComPtr<IAudioCaptureClient> capture_client_;
   WaveFormatPtr format_;
@@ -84,6 +112,8 @@ public:
   WasapiRender(const WasapiRender&) = delete;
   WasapiRender& operator=(const WasapiRender&) = delete;
 
+  HANDLE eventHandle() const noexcept;
+
   void start();
   void stop() noexcept;
 
@@ -93,6 +123,7 @@ public:
   void write(const AudioFifo::ReadView& view, size_t frames);
 
 private:
+  UniqueHandle event_;
   Microsoft::WRL::ComPtr<IAudioClient> audio_client_;
   Microsoft::WRL::ComPtr<IAudioRenderClient> render_client_;
 

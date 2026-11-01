@@ -4,7 +4,9 @@
 #include <mmdeviceapi.h>
 #include <propkeydef.h>
 #include <functiondiscoverykeys_devpkey.h>
+#include <system_error>
 
+#include <utility>
 #include <algorithm>
 #include <memory>
 #include <sstream>
@@ -15,7 +17,7 @@ using Microsoft::WRL::ComPtr;
 namespace
 {
 
-std::runtime_error wasapiError(const char* operation, HRESULT hr)
+mitmegy::WasapiError wasapiError(const char* operation, HRESULT hr)
 {
   std::stringstream ss;
 
@@ -23,7 +25,7 @@ std::runtime_error wasapiError(const char* operation, HRESULT hr)
      << std::hex
      << static_cast<unsigned long>(hr);
 
-  return std::runtime_error(ss.str());
+  return {ss.str(), hr};
 }
 
 ComPtr<IMMDeviceEnumerator> createEnumerator()
@@ -179,38 +181,71 @@ void enumerateRenderEndpoints(std::vector<Endpoint>& endpoints)
   }
 }
 
+WasapiError::WasapiError(std::string message, HRESULT hr)
+  : std::runtime_error(std::move(message))
+  , hr_(hr)
+{}
+
+HRESULT WasapiError::hresult() const noexcept
+{
+  return hr_;
+}
+
+UniqueHandle createEvent()
+{
+  UniqueHandle event(::CreateEventW(nullptr, FALSE, FALSE, nullptr));
+
+  if (!event)
+    throw std::system_error(
+      static_cast<int>(::GetLastError()),
+      std::system_category(),
+      "CreateEventW");
+
+  return event;
+}
+
 // WasapiCapture
 
 WasapiCapture::WasapiCapture(const Endpoint& endpoint)
+  : event_(createEvent())
 {
   auto device = getDevice(endpoint);
 
   HRESULT hr = device->Activate(
     __uuidof(IAudioClient), CLSCTX_ALL, nullptr,
     reinterpret_cast<void**>(audio_client_.GetAddressOf()));
+
   if (FAILED(hr))
     throw wasapiError("AudioSink Activate", hr);
 
   WAVEFORMATEX* raw_format = nullptr;
   hr = audio_client_->GetMixFormat(&raw_format);
+
   if (FAILED(hr))
     throw wasapiError("AudioSink GetMixFormat", hr);
 
   format_.reset(raw_format);
 
-  // TODO:
-  // Replace with tuned, event-driven buffering.
-  constexpr REFERENCE_TIME buffer_duration = 100 * 10'000;
+  constexpr DWORD flags =
+    AUDCLNT_STREAMFLAGS_LOOPBACK |
+    AUDCLNT_STREAMFLAGS_EVENTCALLBACK;
 
   hr = audio_client_->Initialize(
-    AUDCLNT_SHAREMODE_SHARED, AUDCLNT_STREAMFLAGS_LOOPBACK,
-    buffer_duration, 0, format_.get(), nullptr);
+    AUDCLNT_SHAREMODE_SHARED, flags,
+    0, 0, format_.get(), nullptr);
+
   if (FAILED(hr))
     throw wasapiError("Loopback Initialize", hr);
+
+  hr = audio_client_->SetEventHandle(event_.get());
+
+  if (FAILED(hr))
+    throw wasapiError("Loopback SetEventHandle", hr);
 
   hr = audio_client_->GetService(
     __uuidof(IAudioCaptureClient),
     reinterpret_cast<void**>(capture_client_.GetAddressOf()));
+
   if (FAILED(hr))
     throw wasapiError("Get IAudioCaptureClient", hr);
 }
@@ -230,6 +265,11 @@ SampleFormat WasapiCapture::sampleFormat() const
   return getSampleFormat(*format_);
 }
 
+HANDLE WasapiCapture::eventHandle() const noexcept
+{
+  return event_.get();
+}
+
 size_t WasapiCapture::channels() const
 {
   return format_->nChannels;
@@ -244,6 +284,12 @@ void WasapiCapture::start()
 {
   if (started_)
     return;
+
+  if (!::ResetEvent(event_.get()))
+    throw std::system_error(
+      static_cast<int>(::GetLastError()),
+      std::system_category(),
+      "ResetEvent(capture)");
 
   const HRESULT hr = audio_client_->Start();
   if (FAILED(hr))
@@ -337,7 +383,8 @@ CaptureResult WasapiCapture::captureInto(AudioFifo& fifo)
 // WasapiRender
 
 WasapiRender::WasapiRender(const Endpoint& endpoint, const WAVEFORMATEX& format)
-  : channels_(format.nChannels)
+  : event_(createEvent())
+  , channels_(format.nChannels)
 {
   auto device = getDevice(endpoint);
 
@@ -350,25 +397,30 @@ WasapiRender::WasapiRender(const Endpoint& endpoint, const WAVEFORMATEX& format)
 
   constexpr DWORD flags =
     AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM |
-    AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY;
-
-  // TODO:
-  // Replace with tuned, event-driven buffering.
-  constexpr REFERENCE_TIME buffer_duration = 100 * 10'000;
+    AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY |
+    AUDCLNT_STREAMFLAGS_EVENTCALLBACK;
 
   hr = audio_client_->Initialize(
-    AUDCLNT_SHAREMODE_SHARED, flags, buffer_duration,
-    0, &format, nullptr);
+    AUDCLNT_SHAREMODE_SHARED, flags,
+    0, 0, &format, nullptr);
+
   if (FAILED(hr))
     throw wasapiError("Output Initialize", hr);
 
+  hr = audio_client_->SetEventHandle(event_.get());
+
+  if (FAILED(hr))
+    throw wasapiError("Output SetEventHandle", hr);
+
   hr = audio_client_->GetBufferSize(&buffer_frames_);
+
   if (FAILED(hr))
     throw wasapiError("Output GetBufferSize", hr);
 
   hr = audio_client_->GetService(
     __uuidof(IAudioRenderClient),
     reinterpret_cast<void**>(render_client_.GetAddressOf()));
+
   if (FAILED(hr))
     throw wasapiError("Get IAudioRenderClient", hr);
 }
@@ -378,10 +430,21 @@ WasapiRender::~WasapiRender()
   stop();
 }
 
+HANDLE WasapiRender::eventHandle() const noexcept
+{
+  return event_.get();
+}
+
 void WasapiRender::start()
 {
   if (started_)
     return;
+
+  if (!::ResetEvent(event_.get()))
+    throw std::system_error(
+      static_cast<int>(::GetLastError()),
+      std::system_category(),
+      "ResetEvent(render)");
 
   const HRESULT hr = audio_client_->Start();
   if (FAILED(hr))
