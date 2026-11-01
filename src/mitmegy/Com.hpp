@@ -1,6 +1,10 @@
 #pragma once
 
-#include <windows.h>
+#ifndef NOMINMAX
+  #define NOMINMAX
+#endif
+
+#include <objbase.h>
 
 namespace mitmegy
 {

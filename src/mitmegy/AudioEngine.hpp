@@ -1,5 +1,9 @@
 #pragma once
 
+#ifndef NOMINMAX
+  #define NOMINMAX
+#endif
+
 #include "AudioFifo.hpp"
 #include "Wasapi.hpp"
 
@@ -8,6 +12,7 @@
 #include <cstdint>
 #include <functional>
 #include <limits>
+#include <memory>
 
 namespace mitmegy
 {
@@ -36,7 +41,8 @@ class AudioEngine
 public:
   AudioEngine(const Endpoint& audio_sink, const Endpoint& output);
 
-  void run(const std::atomic_bool& running);
+  void run();
+  void requestStop() noexcept;
   const TransportStats& stats() const;
 
   const WAVEFORMATEX& inputFormat() const;
@@ -47,14 +53,20 @@ public:
 
 private:
   void capturePacket();
-  void prefill(const std::atomic_bool& running);
-  void runLoop(const std::atomic_bool& running);
+  void prefill();
+  void runLoop();
   bool renderFromFifo();
   void guardOutput(AudioFifo::ReadView& view, size_t frames);
 
-  WasapiCapture capture_;
-  AudioFifo fifo_;
-  WasapiRender render_;
+  Endpoint audio_sink_;
+  Endpoint output_;
+
+  UniqueHandle control_event_;
+  std::atomic_bool stop_requested_{false};
+
+  std::unique_ptr<WasapiCapture> capture_;
+  std::unique_ptr<AudioFifo> fifo_;
+  std::unique_ptr<WasapiRender> render_;
 
   TransportStats stats_;
 };
