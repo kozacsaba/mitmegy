@@ -7,7 +7,10 @@
       "displayName": "Visual Studio 2026 - x64",
       "generator": "Visual Studio 18 2026",
       "architecture": "x64",
-      "binaryDir": "${sourceDir}/build/vs2026-x64"
+      "binaryDir": "${sourceDir}/build/vs2026-x64",
+      "cacheVariables": {
+        "MITMEGY_AUDIO_SINK_NAME": "CABLE Input"
+      }
     }
   ],
   "buildPresets": [

@@ -17,3 +17,11 @@ target_link_libraries(processor
     juce::juce_gui_basics
     juce::juce_audio_processors
 )
+
+set_target_properties(processor PROPERTIES
+  WIN32_EXECUTABLE "$<CONFIG:Release>"
+)
+
+target_link_options(processor PRIVATE
+  "$<$<CONFIG:Release>:/ENTRY:wmainCRTStartup>"
+)

@@ -23,3 +23,22 @@ add_subdirectory(src/processor)
 add_subdirectory(src/controller)
 add_subdirectory(tools)
 add_subdirectory(tests)
+
+find_program(ISCC
+  NAMES ISCC.exe
+  PATHS
+    "C:/Program Files (x86)/Inno Setup 7"
+    "C:/Program Files/Inno Setup 7"
+    "C:/Program Files (x86)/Inno Setup 6"
+    "C:/Program Files/Inno Setup 6"
+)
+
+if(ISCC)
+  add_custom_target(installer
+    COMMAND "${ISCC}" "${CMAKE_SOURCE_DIR}/installer/setup.iss"
+    DEPENDS controller processor
+    VERBATIM
+  )
+else()
+  message(STATUS "Inno Setup not found; skipping installer target")
+endif()
